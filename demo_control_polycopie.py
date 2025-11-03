@@ -76,7 +76,70 @@ def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
         V_0: float, it is a reference volume.
     """
 
-    energy = 0.0
+    def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
+    """
+    This function compute the objective function:
+    J(u,domain_omega)= \int_{domain_omega}||u||^2 + mu1*(Vol(domain_omega)-V_0)
+
+    Parameter:
+        domain_omega: Matrix (NxP), it defines the domain and the shape of the
+        Robin frontier;
+        u: Matrix (NxP), it is the solution of the Helmholtz problem, we are
+        computing its energy;
+        spacestep: float, it corresponds to the step used to solve the Helmholtz
+        equation;
+        mu1: float, it is the constant that defines the importance of the volume
+        constraint;
+        V_0: float, it is a reference volume.
+    """
+
+    # 1. Calcul de l'intégrale (Energie) : \int_{domain_omega}||u||^2
+    # Dans le cas discret : Somme sur le domaine de ||u_{i,j}||^2 * (spacestep)^2
+
+    # Calcul de ||u||^2 (module au carré de u)
+    # numpy.abs(u)**2 est équivalent à u * numpy.conjugate(u)
+    # L'énergie physique est généralement liée à la partie réelle de cette intégrale.
+    # Pour l'optimisation, on utilise le carré du module.
+    modulus_squared = numpy.abs(u)**2
+
+    # L'opérateur * (multiplication terme à terme) est nécessaire pour l'intégrale discrète.
+    # L'intégration se fait uniquement sur les nœuds appartenant au domaine (domain_omega != 0)
+    # Cependant, u n'est non nul que sur le domaine, donc une simple somme suffit souvent
+    # si u est bien défini. Si on veut être rigoureux :
+    # On met à zéro les termes en dehors du domaine (où domain_omega est 0)
+    # La variable _env.NODE_DIR/NEU/ROBIN/INTERIOR sont non nulles pour les nœuds
+    # faisant partie du domaine.
+
+    # On suppose que u est déjà nul en dehors du domaine d'intérêt (comme c'est
+    # souvent le cas après solve_helmholtz). Sinon, il faudrait masquer.
+    # Dans le cas où u est seulement défini sur le domaine (i.e. u.shape = domain_omega.shape)
+    # on utilise u.
+    
+    # Approximation par somme de Riemann
+    integral_u_squared = numpy.sum(modulus_squared) * (spacestep**2)
+    # On prend la partie réelle de la somme (important si u est complexe, même si
+    # numpy.abs(u)**2 est réel) :
+    real_integral_u_squared = numpy.real(integral_u_squared)
+
+    # 2. Calcul du volume du domaine: Vol(domain_omega)
+    # Le volume discret est la somme des "cellules" multipliée par (spacestep)^2
+    # On compte le nombre de nœuds dans le domaine (là où domain_omega est non nul).
+    # Tous les nœuds dont la valeur est > 0 font partie du domaine.
+    volume_nodes = numpy.sum(domain_omega > 0)
+    Vol_omega = volume_nodes * (spacestep**2)
+
+    # 3. Calcul de l'énergie J(u,domain_omega)
+    # J(u,domain_omega)= \int_{domain_omega}||u||^2 + mu1*(Vol(domain_omega)-V_0)
+    
+    # Le premier terme (énergie acoustique/électromagnétique)
+    energy_term = real_integral_u_squared
+    
+    # Le second terme (contrainte de volume)
+    volume_constraint_term = mu1 * (Vol_omega - V_0)
+
+    energy = energy_term + volume_constraint_term
+
+    return energy
 
     return energy
 
@@ -177,3 +240,4 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
