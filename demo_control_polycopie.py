@@ -45,6 +45,7 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
                         beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
             p = processing.solve_adjoint(domain_omega, spacestep, omega, u,  beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
             A = -(chi*Alpha*u*p).real
+            J = numpy.sum(A) * (spacestep**2)
             print('    a. computing gradient descent')
             print('    b. computing projected gradient')
             print('    c. computing solution of Helmholtz problem, i.e., u')
@@ -225,6 +226,7 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
 
 
 
