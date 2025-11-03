@@ -20,8 +20,6 @@ def solve_adjoint(domain, space_step, omega, u_source,
         même type de conditions aux limites que le direct, avec alpha_rob conjugué.
     """
 
-    import numpy
-
     (M, N) = numpy.shape(domain)
 
     # f_adj = 2u à l'intérieur du domaine

@@ -44,6 +44,40 @@ def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
     chi_new[mask_R] = proj_final
     return chi_new
 
+def project_to_binary(chi_relaxed, mask_R, beta_target):
+    """
+    Projection finale PU_ad(β)(χ_relaxed) sur {0,1} :
+
+      - on ne touche qu'à la frontière Robin (mask_R),
+      - on met 1 sur les plus grandes valeurs de chi jusqu'à respecter le volume β,
+      - on met 0 ailleurs.
+
+    beta_target = β = moyenne désirée de χ sur Γ_R :
+        beta_target = V_obj = sum(chi_init[mask_R]) / S
+    """
+    chi_bin = numpy.zeros_like(chi_relaxed)
+
+    # valeurs sur la Robin
+    idx_i, idx_j = numpy.where(mask_R)
+    vals = chi_relaxed[idx_i, idx_j]
+    S = vals.size
+    if S == 0:
+        return chi_bin
+
+    # nombre de points à mettre à 1 pour respecter la moyenne β
+    # β = (nb_ones / S)  => nb_ones = β * S
+    nb_ones = int(round(beta_target * S))
+    nb_ones = max(0, min(nb_ones, S))
+
+    # indices des plus grandes valeurs
+    order = numpy.argsort(vals)[::-1]  # tri décroissant
+    sel = order[:nb_ones]
+
+    # on met 1 sur ces points, 0 sur le reste (déjà à 0)
+    chi_bin[idx_i[sel], idx_j[sel]] = 1.0
+
+    return chi_bin
+
 
 def compute_parametric_gradient(domain_omega, Alpha, u, p):
     """
@@ -286,10 +320,28 @@ if __name__ == '__main__':
     chin = chi.copy()
     un = u.copy()
 
+    # --- solution relaxée
+    chi_relaxed = chi.copy()
+    u_relaxed = u.copy()
+
+    # --- projection finale sur {0,1}
+    mask_R = (domain_omega == _env.NODE_ROBIN)
+    chi_bin = project_to_binary(chi_relaxed, mask_R, V_obj)  # V_obj = β
+    alpha_rob_bin = Alpha * chi_bin
+
+    # recalcul du champ pour χ binaire
+    u_bin = processing.solve_helmholtz(domain_omega, spacestep, omega,
+                                    f, f_dir, f_neu, f_rob,
+                                    beta_pde, alpha_pde, alpha_dir,
+                                    beta_neu, beta_rob, alpha_rob_bin)
+    
+
+
+
     # --- plots
     postprocessing._plot_uncontroled_solution(u0, chi0)
-    postprocessing._plot_controled_solution(un, chin)
-    err = un - u0
+    postprocessing._plot_controled_solution(u_bin, chi_bin)
+    err = u_bin - u0
     postprocessing._plot_error(err)
     postprocessing._plot_energy_history(energy)
 
