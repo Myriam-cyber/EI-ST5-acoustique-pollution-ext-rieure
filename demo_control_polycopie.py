@@ -46,11 +46,13 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
             p = processing.solve_adjoint(domain_omega, spacestep, omega, u,  beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
             A = -(chi*Alpha*u*p).real
             J = numpy.sum(A) * (spacestep**2)
+            chi = chi - mu*J
             print('    a. computing gradient descent')
             print('    b. computing projected gradient')
             print('    c. computing solution of Helmholtz problem, i.e., u')
             print('    d. computing objective function, i.e., energy (E)')
             ene = compute_objective_function(domain_omega, u, spacestep, mu1, V_0)
+            energy[k] = ene
             if bool_a:
                 # The step is increased if the energy decreased
                 mu = mu * 1.1
@@ -226,6 +228,7 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
 
 
 
