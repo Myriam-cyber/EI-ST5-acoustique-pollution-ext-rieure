@@ -12,6 +12,36 @@ import scipy.sparse.linalg
 
 # MRG packages
 import _env
+def solve_adjoint(domain, space_step, omega, u_source,
+                  beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob):
+    """
+    Résout le problème adjoint :
+        -Δp - ω² p = 2u_source  dans Ω
+        même type de conditions aux limites que le direct, avec alpha_rob conjugué.
+    """
+
+    import numpy
+
+    (M, N) = numpy.shape(domain)
+
+    # f_adj = 2u à l'intérieur du domaine
+    f_adj = numpy.zeros((M, N), dtype=numpy.complex128)
+    mask_int = (domain == _env.NODE_INTERIOR)
+    f_adj[mask_int] = 2.0 * u_source[mask_int]
+
+    # CL homogènes
+    f_dir_adj = numpy.zeros_like(f_adj)
+    f_neu_adj = numpy.zeros_like(f_adj)
+    f_rob_adj = numpy.zeros_like(f_adj)
+
+    # alpha_rob adjoint : conjugué
+    alpha_rob_adj = numpy.conjugate(alpha_rob)
+
+    p = solve_helmholtz(domain, space_step, omega,
+                        f_adj, f_dir_adj, f_neu_adj, f_rob_adj,
+                        beta_pde, alpha_pde, alpha_dir,
+                        beta_neu, beta_rob, alpha_rob_adj)
+    return p
 
 
 def is_in_interior_domain(node):
