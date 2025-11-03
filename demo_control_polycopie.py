@@ -30,36 +30,76 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
         V_0: float, volume constraint on the domain (you can it up to 1).
     """
 
-    k = 0
     (M, N) = numpy.shape(domain_omega)
-    numb_iter = 100
+    numb_iter = 50
     energy = numpy.zeros((numb_iter+1, 1), dtype=numpy.float64)
-    while k < numb_iter and mu > 10**(-5):
+
+    # solve initial state
+    u = processing.solve_helmholtz(domain_omega, spacestep, omega, f, f_dir, f_neu, f_rob,
+                                   beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
+    J = your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0, chi=chi)
+    energy[0] = J
+
+    mask_R = (domain_omega == _env.NODE_ROBIN)
+
+    for k in range(1, numb_iter+1):
         print('---- iteration number = ', k)
-        print('1. computing solution of Helmholtz problem, i.e., u')
-        print('2. computing solution of adjoint problem, i.e., p')
-        print('3. computing objective function, i.e., energy')
-        print('4. computing parametric gradient')
-        while ene >= energy[k] and mu > 10 ** -5:
-            print('    a. computing gradient descent')
-            print('    b. computing projected gradient')
-            print('    c. computing solution of Helmholtz problem, i.e., u')
-            print('    d. computing objective function, i.e., energy (E)')
-            ene = compute_objective_function(domain_omega, u, spacestep, mu1, V_0)
-            if bool_a:
-                # The step is increased if the energy decreased
-                mu = mu * 1.1
+
+        # --- gradient "proxy" sur la frontière : pousse chi là où |u|^2 est grand
+        grad = numpy.zeros_like(chi, dtype=numpy.float64)
+        grad_R = numpy.abs(u[mask_R])**2
+        # normalisation évite des pas trop gros
+        if grad_R.size > 0:
+            gmax = grad_R.max()
+            if gmax > 0:
+                grad[mask_R] = grad_R / gmax
             else:
-                # The step is decreased is the energy increased
-                mu = mu / 2
-        k += 1
+                grad[mask_R] = 0.0
+
+        # direction de descente: diminuer l'énergie -> chi_new = chi - mu * grad
+        chi_trial = chi.copy()
+        chi_trial[mask_R] = numpy.clip(chi[mask_R] - mu * grad[mask_R], 0.0, 1.0)
+
+        # volume (optionnel) : recentre pour viser V_obj (sur Robin)
+        if V_obj is not None and V_obj > 0:
+            S = max(1, numpy.sum(mask_R))
+            avg = numpy.sum(chi_trial[mask_R]) / S
+            shift = avg - V_obj
+            chi_trial[mask_R] = numpy.clip(chi_trial[mask_R] - 0.1*shift, 0.0, 1.0)
+
+        # mettre à jour alpha_rob = Alpha * chi_trial pour résoudre u_trial
+        alpha_rob_trial = Alpha * chi_trial
+
+        # résoudre Helmholtz pour la densité d’essai
+        u_trial = processing.solve_helmholtz(domain_omega, spacestep, omega, f, f_dir, f_neu, f_rob,
+                                             beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob_trial)
+        J_trial = your_compute_objective_function(domain_omega, u_trial, spacestep, mu1, V_0, chi=chi_trial)
+
+        # ligne de descente adaptative
+        if J_trial < J:
+            # succès: accepte, augmente légèrement mu
+            chi = chi_trial
+            alpha_rob = alpha_rob_trial
+            u = u_trial
+            J = J_trial
+            mu = mu * 1.1
+        else:
+            # échec: diminue mu et ré-essaie depuis le même k avec pas plus petit
+            mu = mu / 2.0
+            if mu < 1e-5:
+                print("Pas trop petit, arrêt anticipé.")
+                energy[k:] = J
+                break
+            # ne pas incrémenter k artificiellement; continue avec pas réduit
+            # mais on doit enregistrer l'énergie actuelle pour cet index
+        energy[k] = J
 
     print('end. computing solution of Helmholtz problem, i.e., u')
 
     return chi, energy, u, grad
 
 
-def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
+def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0, chi=None):
     """
     This function compute the objective function:
     J(u,domain_omega)= \int_{domain_omega}||u||^2 + mu1*(Vol(domain_omega)-V_0)
@@ -75,101 +115,89 @@ def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
         constraint;
         V_0: float, it is a reference volume.
     """
+    """
+    J = sum_{i,j in domaine} |u|^2 * spacestep^2  +  mu1 * (Vol(chi) - V_0)
+    Vol(chi) = moyenne/somme de chi sur la frontière Robin (au choix, mais sois cohérent).
+    """
+    # énergie du champ dans le domaine intérieur
+    mask_dom = (domain_omega == _env.NODE_INTERIOR)
+    E = numpy.sum(numpy.abs(u[mask_dom])**2) * (spacestep**2)
 
-    energy = 0.0
-
-    return energy
+    # terme de volume (si chi fourni)
+    if chi is not None:
+        mask_R = (domain_omega == _env.NODE_ROBIN)
+        Vol = numpy.sum(chi[mask_R])  # ou /S si tu préfères une moyenne
+        J = E + mu1 * (Vol - V_0)
+    else:
+        J = E
+    return float(numpy.real(J))
 
 
 if __name__ == '__main__':
 
-    # ----------------------------------------------------------------------
-    # -- Fell free to modify the function call in this cell.
-    # ----------------------------------------------------------------------
-    # -- set parameters of the geometry
-    N = 50  # number of points along x-axis
-    M = 2 * N  # number of points along y-axis
-    level = 0 # level of the fractal
-    spacestep = 1.0 / N  # mesh size
+    N = 50
+    M = 2 * N
+    level = 0
+    spacestep = 1.0 / 10
 
-    # -- set parameters of the partial differential equation
-    kx = -1.0
-    ky = -1.0
-    wavenumber = numpy.sqrt(kx**2 + ky**2)  # wavenumber
-    wavenumber = 10.0
+    # --- fréquence 125 Hz
+    c = 343.0
+    f = 125.0
+    k_phys = 2*numpy.pi*f/c
+    L_ref = 1.0
+    k = k_phys * L_ref
+    omega = k
+    print(f"Fréquence = {f} Hz  →  k = {k:.3f} rad/unité")
 
-    # ----------------------------------------------------------------------
-    # -- Do not modify this cell, these are the values that you will be assessed against.
-    # ----------------------------------------------------------------------
-    # --- set coefficients of the partial differential equation
+    # --- coefficients PDE
     beta_pde, alpha_pde, alpha_dir, beta_neu, alpha_rob, beta_rob = preprocessing._set_coefficients_of_pde(M, N)
-
-    # -- set right hand sides of the partial differential equation
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
-
-    # -- set geometry of domain
     domain_omega, x, y, _, _ = preprocessing._set_geometry_of_domain(M, N, level)
 
-    # ----------------------------------------------------------------------
-    # -- Fell free to modify the function call in this cell.
-    # ----------------------------------------------------------------------
-    # -- define boundary conditions
-    # planar wave defined on top
+    # --- onde plane en haut (bruit voiture)
     f_dir[:, :] = 0.0
-    f_dir[0, 0:N] = 1.0
-    # spherical wave defined on top
-    #f_dir[:, :] = 0.0
-    #f_dir[0, int(N/2)] = 10.0
+    theta_deg = 0.0
+    theta = numpy.deg2rad(theta_deg)
+    x_coords = numpy.arange(N) * spacestep
+    phase_x = numpy.exp(1j * k * numpy.sin(theta) * x_coords)
+    f_dir[0, 0:N] = phase_x
 
-    # -- initialize
-    alpha_rob[:, :] = - wavenumber * 1j
+    # --- condition Robin de base
+    alpha_rob[:, :] = - omega * 1j
 
-    # -- define material density matrix
+    # --- densité initiale
     chi = preprocessing._set_chi(M, N, x, y)
     chi = preprocessing.set2zero(chi, domain_omega)
 
-    # -- define absorbing material
-    Alpha = 10.0 - 10.0 * 1j
-    # -- this is the function you have written during your project
-    #import compute_alpha
-    #Alpha = compute_alpha.compute_alpha(...)
+    # --- matériau absorbant
+    Alpha = 6.311111794566079 - 6.67835254158675*1j
     alpha_rob = Alpha * chi
 
-    # -- set parameters for optimization
-    S = 0  # surface of the fractal
-    for i in range(0, M):
-        for j in range(0, N):
-            if domain_omega[i, j] == _env.NODE_ROBIN:
-                S += 1
-    V_0 = 1  # initial volume of the domain
-    V_obj = numpy.sum(numpy.sum(chi)) / S  # constraint on the density
-    mu = 5  # initial gradient step
-    mu1 = 10**(-5)  # parameter of the volume functional
+    # --- paramètres optimisation
+    S = numpy.sum(domain_omega == _env.NODE_ROBIN)
+    V_0 = 1.0
+    V_obj = numpy.sum(chi) / S
+    mu = 5.0
+    mu1 = 1e-5
 
-    # ----------------------------------------------------------------------
-    # -- Do not modify this cell, these are the values that you will be assessed against.
-    # ----------------------------------------------------------------------
-    # -- compute finite difference solution
-    u = processing.solve_helmholtz(domain_omega, spacestep, wavenumber, f, f_dir, f_neu, f_rob,
-                        beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
+    # --- solution non contrôlée (pour comparer)
+    u = processing.solve_helmholtz(domain_omega, spacestep, omega, f, f_dir, f_neu, f_rob,
+                                   beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob)
     chi0 = chi.copy()
     u0 = u.copy()
 
-    # ----------------------------------------------------------------------
-    # -- Fell free to modify the function call in this cell.
-    # ----------------------------------------------------------------------
-    # -- compute optimization
-    energy = numpy.zeros((100+1, 1), dtype=numpy.float64)
-    # chi, energy, u, grad = your_optimization_procedure(...)
-    #chi, energy, u, grad = solutions.optimization_procedure(domain_omega, spacestep, wavenumber, f, f_dir, f_neu, f_rob,
-    #                    beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob,
-    #                    Alpha, mu, chi, V_obj, mu1, V_0)
-    # --- en of optimization
+    # --- DESCENTE DE GRADIENT
+    chi, energy, u, grad = your_optimization_procedure(
+        domain_omega, spacestep, omega,
+        f, f_dir, f_neu, f_rob,
+        beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob,
+        Alpha, mu, chi, V_obj, mu1, V_0
+    )
 
     chin = chi.copy()
     un = u.copy()
 
-    # -- plot chi, u, and energy
+    # --- plots
     postprocessing._plot_uncontroled_solution(u0, chi0)
     postprocessing._plot_controled_solution(un, chin)
     err = un - u0

@@ -38,12 +38,12 @@ def compute_alpha(omega, material):
     """
 
     #Birch LT
-    #phi = 0.529  # porosity
-    #gamma_p = 7.0 / 5.0
-    #sigma = 151429.0  # resitivity
-    #rho_0 = 1.2
-    #alpha_h = 1.37  # tortuosity
-    #c_0 = 340.0
+    phi = 0.529  # porosity
+    gamma_p = 7.0 / 5.0
+    sigma = 151429.0  # resitivity
+    rho_0 = 1.2
+    alpha_h = 1.37  # tortuosity
+    c_0 = 340.0
     
     # melamine foam 
     #phi = 0.99  # porosity
@@ -54,12 +54,12 @@ def compute_alpha(omega, material):
     #c_0 = 340.0
     
     # laine de verre (source : https://backend.orbit.dtu.dk/ws/portalfiles/portal/337029887/ForumAcusticum_Compilation_1.pdf)
-    phi = 0.95  # porosity
-    gamma_p = 7.0 / 5.0
-    sigma = 8.0e4  # resitivity
-    rho_0 = 1.2
-    alpha_h = 1.2  # tortuosity
-    c_0 = 340.0
+    #phi = 0.95  # porosity
+    #gamma_p = 7.0 / 5.0
+    #sigma = 8.0e4  # resitivity
+    #rho_0 = 1.2
+    #alpha_h = 1.2  # tortuosity
+    #c_0 = 340.0
     
     # laine de roche (source : https://scispace.com/pdf/characterizing-modelling-and-optimizing-the-sound-absorption-1p9oyra5mr.pdf)
     #phi = 0.94  # porosity
@@ -201,9 +201,9 @@ def compute_alpha(omega, material):
 
 def run_compute_alpha(material):
     print('Computing alpha...')
-    numb_omega = 1000  # 1000      # à changer selon qu'on veut une courbe plus lisse ou pas
+    numb_omega = 100  # 1000      # à changer selon qu'on veut une courbe plus lisse ou pas
     # omegas = numpy.logspace(numpy.log10(600), numpy.log10(30000), num=numb_omega)
-    omegas = numpy.linspace(2.0 * numpy.pi, numpy.pi * 10000, num=numb_omega)
+    omegas = numpy.linspace(2.0 * numpy.pi, numpy.pi * 1000, num=numb_omega)
     temp = [compute_alpha(omega, material=material) for omega in omegas]
     print("temp:", "------", temp)
     alphas, errors = map(list, zip(*temp))
