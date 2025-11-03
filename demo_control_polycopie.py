@@ -120,6 +120,12 @@ if __name__ == '__main__':
     # spherical wave defined on top
     #f_dir[:, :] = 0.0
     #f_dir[0, int(N/2)] = 10.0
+    # gaussian wave
+    # f_dir[:,:] = 0.0
+    # sigma_y = N/4
+    #for y in range(N):
+        f_dir[0, y] = 10  *  numpy.exp((-(y-N/2)**2) / (2 * (sigma_y ** 2)))  *   (1/( numpy.sqrt(2 * numpy.pi) * sigma_y))
+    
 
     # -- initialize
     alpha_rob[:, :] = - wavenumber * 1j
@@ -177,3 +183,4 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
