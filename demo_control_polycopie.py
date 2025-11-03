@@ -76,23 +76,6 @@ def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
         V_0: float, it is a reference volume.
     """
 
-    def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
-    """
-    This function compute the objective function:
-    J(u,domain_omega)= \int_{domain_omega}||u||^2 + mu1*(Vol(domain_omega)-V_0)
-
-    Parameter:
-        domain_omega: Matrix (NxP), it defines the domain and the shape of the
-        Robin frontier;
-        u: Matrix (NxP), it is the solution of the Helmholtz problem, we are
-        computing its energy;
-        spacestep: float, it corresponds to the step used to solve the Helmholtz
-        equation;
-        mu1: float, it is the constant that defines the importance of the volume
-        constraint;
-        V_0: float, it is a reference volume.
-    """
-
     # 1. Calcul de l'intégrale (Energie) : \int_{domain_omega}||u||^2
     # Dans le cas discret : Somme sur le domaine de ||u_{i,j}||^2 * (spacestep)^2
 
@@ -138,8 +121,6 @@ def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0):
     volume_constraint_term = mu1 * (Vol_omega - V_0)
 
     energy = energy_term + volume_constraint_term
-
-    return energy
 
     return energy
 
@@ -240,4 +221,5 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
 
