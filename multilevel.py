@@ -351,16 +351,27 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     # =================================================================
     # SOURCE: Gaussian from top
     # =================================================================
-    f_dir[:, :] = 0.0
+# =================================================================
+# SOURCE: localised Dirichlet on top boundary
+# =================================================================
     f[:, :] = 0.0
-    x_source = 0.5
-    y_source = 0.25  # 1/4 from top
-    i_source = int(y_source / spacestep)
-    j_source = int(x_source / spacestep)
-        
-        # Add delta function source: -Δu - k²u = f
-        # For point source: f = δ(x - x_source)
-    f[i_source, j_source] = 1.0 / (spacestep**2)
+    f_neu[:, :] = 0.0
+    f_rob[:, :] = 0.0
+    f_dir[:, :] = 0.0
+
+    # position de la "route" en x (au milieu)
+    x_center = 0.5
+    width = 0.2          # largeur de la zone active (en fraction de la largeur)
+
+    j_center = int(x_center / spacestep)
+    half_w = int((width / 2) / spacestep)
+
+    j_min = max(0, j_center - half_w)
+    j_max = min(N, j_center + half_w)
+
+    # phase potentielle (mais ici amplitude constante suffit)
+    f_dir[0, j_min:j_max] = 1.0 + 0.0j
+
     # =================================================================
     # INITIAL ROBIN CONDITION
     # =================================================================

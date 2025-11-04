@@ -137,8 +137,8 @@ if __name__ == '__main__':
 
     # --- Load alpha(f) data for BETON
     freq_tab_alpha, alpha_tab_alpha = load_alpha_table(
-        'dta_freq_BETON.mtx',
-        'dta_alpha_BETON.mtx'
+        'dta_freq_MELAMINE.mtx',
+        'dta_alpha_MELAMINE.mtx'
     )
     print("Loaded alpha(f) table for BETON:")
     print(f"  Frequency range: [{freq_tab_alpha[0]:.1f}, {freq_tab_alpha[-1]:.1f}] Hz")
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     # --- Frequency range (auto or fixed)
     freq_min = max(100.0, freq_tab_alpha[0])
     freq_max = min(1000.0, freq_tab_alpha[-1])
-    n_frequencies = 100
+    n_frequencies = 1000
     frequencies = np.linspace(freq_min, freq_max, n_frequencies)
 
     # --- PDE setup
