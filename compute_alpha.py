@@ -290,6 +290,64 @@ def plot_all_materials(materials):
     matplotlib.pyplot.savefig("compare_ratio_alpha_materials.jpg")
     matplotlib.pyplot.close(fig)
     print("Saved: compare_ratio_alpha_materials.jpg")
+    
+
+def plot_real_all_materials(materials):
+    colors = {
+        "MELAMINE": "blue",
+        "BIRCH": "green",
+        "LAINE_ROCHE": "red",
+        "LAINE_VERRE": "purple",
+        "BETON": "orange"
+    }
+
+    fig = matplotlib.pyplot.figure()
+
+    for mat in materials:
+        freqs = scipy.io.mmread(f'dta_freq_{mat}.mtx').reshape(-1)
+        alphas = scipy.io.mmread(f'dta_alpha_{mat}.mtx').reshape(-1)
+
+        real_alpha = numpy.real(alphas)
+
+        matplotlib.pyplot.plot(freqs, real_alpha, label=mat, color=colors[mat])
+
+    matplotlib.pyplot.xlabel("Frequency (Hz)")
+    matplotlib.pyplot.ylabel("Re(α)")
+    matplotlib.pyplot.title("Real part of α vs Frequency for all materials")
+    matplotlib.pyplot.legend()
+    matplotlib.pyplot.grid(True)
+    matplotlib.pyplot.savefig("compare_real_alpha_materials.jpg")
+    matplotlib.pyplot.close(fig)
+    print("Saved: compare_real_alpha_materials.jpg")
+
+
+def plot_imag_all_materials(materials):
+    colors = {
+        "MELAMINE": "blue",
+        "BIRCH": "green",
+        "LAINE_ROCHE": "red",
+        "LAINE_VERRE": "purple",
+        "BETON": "orange"
+    }
+
+    fig = matplotlib.pyplot.figure()
+
+    for mat in materials:
+        freqs = scipy.io.mmread(f'dta_freq_{mat}.mtx').reshape(-1)
+        alphas = scipy.io.mmread(f'dta_alpha_{mat}.mtx').reshape(-1)
+
+        imag_alpha = numpy.imag(alphas)
+
+        matplotlib.pyplot.plot(freqs, imag_alpha, label=mat, color=colors[mat])
+
+    matplotlib.pyplot.xlabel("Frequency (Hz)")
+    matplotlib.pyplot.ylabel("Im(α)")
+    matplotlib.pyplot.title("Imaginary part of α vs Frequency for all materials")
+    matplotlib.pyplot.legend()
+    matplotlib.pyplot.grid(True)
+    matplotlib.pyplot.savefig("compare_imag_alpha_materials.jpg")
+    matplotlib.pyplot.close(fig)
+    print("Saved: compare_imag_alpha_materials.jpg")
 
 
 
@@ -297,11 +355,15 @@ def run():
     materials = ["MELAMINE", "BIRCH", "LAINE_ROCHE", "LAINE_VERRE", "BETON"]
 
     for mat in materials:
-        #print(f"Processing {mat}...")
         run_compute_alpha(mat)
 
-    # Plot on a single figure
-    plot_all_materials(materials)
+    # New plots
+    plot_real_all_materials(materials)
+    plot_imag_all_materials(materials)
+
+    
+    # plot_all_materials(materials)
+
 
 
 
