@@ -14,7 +14,36 @@ import processing
 import postprocessing
 #import solutions
 
+def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
+    """
+    Projection PU*_ad(β)(χ) = max(0, min(χ + ℓ, 1)) sur la frontière Robin,
+    avec ℓ choisi pour que la moyenne sur Γ (Robin) soit β = beta_target.
+    """
+    vals = chi_tentative[mask_R]
+    S = vals.size
+    if S == 0:
+        return chi_tentative
 
+    # bornes initiales pour ℓ
+    ell_min = -1.0
+    ell_max = 1.0
+
+    for _ in range(max_iter):
+        ell_mid = 0.5 * (ell_min + ell_max)
+        proj = numpy.clip(vals + ell_mid, 0.0, 1.0)
+        m = proj.mean()
+        if abs(m - beta_target) < tol:
+            break
+        if m > beta_target:
+            ell_max = ell_mid
+        else:
+            ell_min = ell_mid
+
+    proj_final = numpy.clip(vals + ell_mid, 0.0, 1.0)
+    chi_new = chi_tentative.copy()
+    chi_new[mask_R] = proj_final
+    return chi_new
+  
 def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu, f_rob,
                            beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob,
                            Alpha, mu, chi, V_obj, mu1, V_0):
@@ -228,6 +257,7 @@ if __name__ == '__main__':
     postprocessing._plot_energy_history(energy)
 
     print('End.')
+
 
 
 
