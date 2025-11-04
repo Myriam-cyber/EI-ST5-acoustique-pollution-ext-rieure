@@ -13,7 +13,7 @@ MATERIALS = {
     "BIRCH": {"phi": 0.529, "sigma": 151429.0, "alpha_h": 1.37},
     "LAINE_ROCHE": {"phi": 0.98, "sigma": 30000.0, "alpha_h": 1.2},
     "LAINE_VERRE": {"phi": 0.95, "sigma": 40000.0, "alpha_h": 1.3},
-    "BETON": {"phi": 0.47, "sigma": 5000.0, "alpha_h": 2.2},
+    "BETON": {"phi": 0.45, "sigma": 5000.0, "alpha_h": 2.2},
 }
 
 
