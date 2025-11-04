@@ -15,13 +15,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import time
-
+from scipy.io import mmread
 # MRG packages
 import _env
 import preprocessing
 import processing
 import postprocessing
 
+def load_alpha_table(freq_file, alpha_file):
+    """Lit les fichiers .mtx contenant f (Hz) et alpha (complexe)."""
+    freq_tab = np.array(mmread(freq_file)).flatten()
+    alpha_tab = np.array(mmread(alpha_file)).flatten()
+
+    idx = np.argsort(freq_tab)
+    freq_tab = freq_tab[idx]
+    alpha_tab = alpha_tab[idx]
+    return freq_tab, alpha_tab
+
+
+def alpha_of_freq(freq, freq_tab, alpha_tab):
+    """Interpolation de α(f) complexe."""
+    freq_clamped = np.clip(freq, freq_tab[0], freq_tab[-1])
+    re = np.interp(freq_clamped, freq_tab, np.real(alpha_tab))
+    im = np.interp(freq_clamped, freq_tab, np.imag(alpha_tab))
+    return re + 1j * im
 
 def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
     """
@@ -334,7 +351,15 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     omega = k
     print(f"Frequency = {f_Hz} Hz  →  k = {k:.3f} rad/unit")
     print(f"Grid: {M}×{N}, spacestep = {spacestep:.4f}")
-
+    # =================================================================
+    # MATERIAL PROPERTY: α(f) for concrete (BETON)
+    # =================================================================
+    freq_tab_alpha, alpha_tab_alpha = load_alpha_table(
+        'dta_freq_MELAMINE.mtx',
+        'dta_alpha_MELAMINE.mtx'
+    )
+    Alpha = alpha_of_freq(f_Hz, freq_tab_alpha, alpha_tab_alpha)
+    print(f"Material α(f={f_Hz:.1f} Hz) = {Alpha.real:.4e} + {Alpha.imag:.4e}j")
     # =================================================================
     # PDE COEFFICIENTS
     # =================================================================
@@ -386,7 +411,7 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     # =================================================================
     # ABSORBING MATERIAL COEFFICIENT
     # =================================================================
-    Alpha = 6.311111794566079 - 6.67835254158675*1j
+    #Alpha = 6.311111794566079 - 6.67835254158675*1j
     alpha_rob = Alpha * chi
 
     # =================================================================
