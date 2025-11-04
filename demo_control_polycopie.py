@@ -1,39 +1,40 @@
-# -*- coding: utf-8 -*-
-
 
 # Python packages
 import matplotlib.pyplot
 import numpy
 import os
-
-
 # MRG packages
 import _env
 import preprocessing
 import processing
 import postprocessing
-#import solutions
 
 def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
     """
-    Projection PU*_ad(β)(χ) = max(0, min(χ + ℓ, 1)) sur la frontière Robin,
-    avec ℓ choisi pour que la moyenne sur Γ (Robin) soit β = beta_target.
+    Projection P_{U*_ad(β)}(χ) = max(0, min(χ + ℓ, 1)) on Robin boundary,
+    with ℓ chosen so that the mean on Γ (Robin) equals β = beta_target.
+    
+    This ensures: 
+    - All values are in [0,1]
+    - Volume constraint: mean(χ) = β
     """
     vals = chi_tentative[mask_R]
     S = vals.size
     if S == 0:
         return chi_tentative
 
-    # bornes initiales pour ℓ
-    ell_min = -1.0
-    ell_max = 1.0
+    # Binary search for ℓ
+    ell_min = -2.0  # Increased range for robustness
+    ell_max = 2.0
 
-    for _ in range(max_iter):
+    for iteration in range(max_iter):
         ell_mid = 0.5 * (ell_min + ell_max)
         proj = numpy.clip(vals + ell_mid, 0.0, 1.0)
         m = proj.mean()
+        
         if abs(m - beta_target) < tol:
             break
+            
         if m > beta_target:
             ell_max = ell_mid
         else:
@@ -44,36 +45,32 @@ def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
     chi_new[mask_R] = proj_final
     return chi_new
 
+
 def project_to_binary(chi_relaxed, mask_R, beta_target):
     """
-    Projection finale PU_ad(β)(χ_relaxed) sur {0,1} :
-
-      - on ne touche qu'à la frontière Robin (mask_R),
-      - on met 1 sur les plus grandes valeurs de chi jusqu'à respecter le volume β,
-      - on met 0 ailleurs.
-
-    beta_target = β = moyenne désirée de χ sur Γ_R :
-        beta_target = V_obj = sum(chi_init[mask_R]) / S
+    Final projection P_{U_ad(β)}(χ_relaxed) onto {0,1}:
+    - Only modifies Robin boundary (mask_R)
+    - Sets 1 on largest values to respect volume β
+    - Sets 0 elsewhere
+    
+    beta_target = desired mean of χ on Γ_R
     """
     chi_bin = numpy.zeros_like(chi_relaxed)
 
-    # valeurs sur la Robin
     idx_i, idx_j = numpy.where(mask_R)
     vals = chi_relaxed[idx_i, idx_j]
     S = vals.size
     if S == 0:
         return chi_bin
 
-    # nombre de points à mettre à 1 pour respecter la moyenne β
-    # β = (nb_ones / S)  => nb_ones = β * S
+    # Number of points to set to 1: β * S
     nb_ones = int(round(beta_target * S))
     nb_ones = max(0, min(nb_ones, S))
 
-    # indices des plus grandes valeurs
-    order = numpy.argsort(vals)[::-1]  # tri décroissant
+    # Indices of largest values
+    order = numpy.argsort(vals)[::-1]  # descending
     sel = order[:nb_ones]
 
-    # on met 1 sur ces points, 0 sur le reste (déjà à 0)
     chi_bin[idx_i[sel], idx_j[sel]] = 1.0
 
     return chi_bin
@@ -81,11 +78,13 @@ def project_to_binary(chi_relaxed, mask_R, beta_target):
 
 def compute_parametric_gradient(domain_omega, Alpha, u, p):
     """
-    Gradient paramétrique g(x) ≈ Re(Alpha * p * u) sur Γ_Robin,
-    en utilisant les valeurs d'intérieur voisines pour approximer la trace.
-
-    Pour chaque nœud Robin (i,j), on prend la moyenne des voisins intérieurs
-    (i±1,j), (i,j±1) et on calcule Re(Alpha * p_int * u_int).
+    Parametric gradient g(x) = -Re(Alpha * p * u̅) on Γ_Robin.
+    
+    This is derived from the Lagrangian method (equation 7.42):
+    ⟨J'(χ), χ₀⟩ = -∫_Γ χ₀ Re(α u(χ) p(χ)) dμ
+    
+    For interior approximation of boundary values, we average neighboring
+    interior points.
     """
     (M, N) = numpy.shape(domain_omega)
     grad = numpy.zeros((M, N), dtype=numpy.float64)
@@ -95,7 +94,8 @@ def compute_parametric_gradient(domain_omega, Alpha, u, p):
             if domain_omega[i, j] == _env.NODE_ROBIN:
                 vals_u = []
                 vals_p = []
-                # voisins (haut, bas, gauche, droite)
+                
+                # Neighbors (up, down, left, right)
                 for di, dj in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
                     ii = i + di
                     jj = j + dj
@@ -103,21 +103,23 @@ def compute_parametric_gradient(domain_omega, Alpha, u, p):
                         if domain_omega[ii, jj] == _env.NODE_INTERIOR:
                             vals_u.append(u[ii, jj])
                             vals_p.append(p[ii, jj])
+                
                 if vals_u:
                     u_avg = sum(vals_u) / len(vals_u)
                     p_avg = sum(vals_p) / len(vals_p)
-                    grad[i, j] = numpy.real(Alpha * p_avg * u_avg)
+                    # Gradient is -Re(Alpha * p * conj(u))
+                    grad[i, j] = -numpy.real(Alpha * p_avg * numpy.conj(u_avg))
                 else:
                     grad[i, j] = 0.0
 
     return grad
 
 
-
 def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0, chi=None):
     """
-    J(u,chi) = ∫_Ω |u|² dx + mu1 * (Vol(chi) - V_0),
-    avec Vol(chi) la somme de chi sur la frontière Robin.
+    J(u,χ) = ∫_Ω |u|² dx + μ₁(Vol(χ) - V₀)
+    
+    With penalty term to enforce volume constraint.
     """
     mask_dom = (domain_omega == _env.NODE_INTERIOR)
     E = numpy.sum(numpy.abs(u[mask_dom])**2) * (spacestep**2)
@@ -125,7 +127,7 @@ def your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0, chi=No
     if chi is not None:
         mask_R = (domain_omega == _env.NODE_ROBIN)
         Vol = numpy.sum(chi[mask_R])
-        J = E + mu1 * (Vol - V_0)
+        J = E + mu1 * (Vol - V_0)**2  # Quadratic penalty for volume
     else:
         J = E
 
@@ -137,11 +139,36 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
                            Alpha, zeta0, chi_init, V_obj, mu1, V_0,
                            max_iter=50, delta=1e-3):
     """
-    Descente de gradient paramétrique robuste :
-    - utilise Re(Alpha * p * u) sur Γ_R,
-    - teste les 2 directions : d = -grad et d = +grad,
-    - pour chaque direction, fait une mini recherche de pas par dichotomie,
-    - choisit la meilleure (celle qui diminue le plus J).
+    Parametric gradient descent with adaptive step size.
+    
+    PARAMETERS TO TUNE:
+    -------------------
+    max_iter : int (default=50)
+        Maximum number of iterations
+    
+    delta : float (default=1e-3)
+        Convergence criterion: max|χ_{n+1} - χ_n| < delta
+    
+    zeta0 : float (default=0.5)
+        Initial step size
+    
+    mu1 : float (default=1e-5)
+        Penalty parameter for volume constraint
+    
+    ADAPTIVE STEP SIZE STRATEGY:
+    ----------------------------
+    - If energy decreases: increase step size slightly
+    - If energy increases: reduce step size by half
+    - Maximum 10 halvings per iteration
+    
+    ALGORITHM:
+    ----------
+    1. Solve direct problem: u(χ_n)
+    2. Solve adjoint problem: p(χ_n)
+    3. Compute gradient: g_n = -Re(α p u̅)
+    4. Update: χ_tent = χ_n + ζ_n g_n
+    5. Project: χ_{n+1} = P_{U*_ad(β)}(χ_tent)
+    6. Adaptive step size adjustment
     """
 
     (M, N) = numpy.shape(domain_omega)
@@ -150,34 +177,44 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
     numb_iter = max_iter
     energy = numpy.zeros((numb_iter+1, 1), dtype=numpy.float64)
 
-    # χ_0 et alpha_rob initial
+    # Initialize
     chi = chi_init.copy()
     alpha_rob_curr = alpha_rob.copy()
 
-    # --- état direct u(χ_0)
+    # Direct problem u(χ₀)
     u = processing.solve_helmholtz(domain_omega, spacestep, omega,
                                    f, f_dir, f_neu, f_rob,
                                    beta_pde, alpha_pde, alpha_dir,
                                    beta_neu, beta_rob, alpha_rob_curr)
 
-    # énergie initiale
+    # Initial energy
     J = your_compute_objective_function(domain_omega, u, spacestep, mu1, V_0, chi=chi)
     energy[0] = J
+    
+    print(f"Initial energy J₀ = {J:.6e}")
+    print(f"Initial β = {numpy.mean(chi[mask_R]):.4f} (target: {V_obj:.4f})")
 
     zeta = zeta0
-    rel_tol = 1e-8  # tolérance relative sur J
+    rel_tol = 1e-8  # Relative tolerance for energy improvement
 
     for n in range(numb_iter):
-        print(f"---- iteration number = {n}, J = {J:.6e}, zeta = {zeta:.3e}")
+        print(f"\n{'='*60}")
+        print(f"Iteration {n}")
+        print(f"{'='*60}")
+        print(f"J = {J:.6e}, ζ = {zeta:.4e}, β = {numpy.mean(chi[mask_R]):.4f}")
 
-        # 1) Problème adjoint p(χ_n)
+        # 1) Adjoint problem p(χ_n)
         p = processing.solve_adjoint(domain_omega, spacestep, omega, u,
                                      beta_pde, alpha_pde, alpha_dir,
                                      beta_neu, beta_rob, alpha_rob_curr)
 
-        # 2) Gradient brut g_n(x) = Re(Alpha * p * u)|_Γ
+        # 2) Gradient g_n(x) = -Re(Alpha * p * conj(u))|_Γ
         grad = compute_parametric_gradient(domain_omega, Alpha, u, p)
+        
+        grad_norm = numpy.linalg.norm(grad[mask_R])
+        print(f"||gradient||₂ = {grad_norm:.6e}")
 
+        # 3) Gradient descent with adaptive step size
         best_J = J
         best_chi = chi
         best_u = u
@@ -185,54 +222,66 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
         best_zeta = zeta
         found_better = False
 
-        # On teste les deux directions : -grad (descente classique) et +grad (au cas où signe inversé)
-        for direction in [-1.0, 1.0]:
-            # recherche de pas pour cette direction
-            zeta_trial_base = zeta
-            for j in range(10):  # au plus 10 essais de pas
-                zeta_trial = zeta_trial_base / (2.0**j)
+        # Try current step size and reduce if needed
+        for j in range(10):  # Max 10 halvings
+            zeta_trial = zeta / (2.0**j)
 
-                chi_tent = chi + direction * zeta_trial * grad
-                chi_tent = project_Uad_star(chi_tent, mask_R, V_obj)
-                alpha_rob_tent = Alpha * chi_tent
+            # Update: χ_tent = χ_n + ζ * grad
+            chi_tent = chi + zeta_trial * grad
+            
+            # Project to maintain constraints
+            chi_tent = project_Uad_star(chi_tent, mask_R, V_obj)
+            alpha_rob_tent = Alpha * chi_tent
 
-                u_tent = processing.solve_helmholtz(domain_omega, spacestep, omega,
-                                                    f, f_dir, f_neu, f_rob,
-                                                    beta_pde, alpha_pde, alpha_dir,
-                                                    beta_neu, beta_rob, alpha_rob_tent)
-                J_tent = your_compute_objective_function(domain_omega, u_tent,
-                                                         spacestep, mu1, V_0, chi=chi_tent)
+            # Solve direct problem with updated χ
+            u_tent = processing.solve_helmholtz(domain_omega, spacestep, omega,
+                                                f, f_dir, f_neu, f_rob,
+                                                beta_pde, alpha_pde, alpha_dir,
+                                                beta_neu, beta_rob, alpha_rob_tent)
+            
+            J_tent = your_compute_objective_function(domain_omega, u_tent,
+                                                     spacestep, mu1, V_0, chi=chi_tent)
 
-                if J_tent < best_J * (1.0 - rel_tol):
-                    # meilleure amélioration trouvée
-                    best_J = J_tent
-                    best_chi = chi_tent
-                    best_u = u_tent
-                    best_alpha_rob = alpha_rob_tent
-                    best_zeta = zeta_trial
-                    found_better = True
+            # Accept if energy decreased
+            if J_tent < best_J * (1.0 - rel_tol):
+                best_J = J_tent
+                best_chi = chi_tent
+                best_u = u_tent
+                best_alpha_rob = alpha_rob_tent
+                best_zeta = zeta_trial
+                found_better = True
+                print(f"  Trial {j}: ζ = {zeta_trial:.4e}, J = {J_tent:.6e} ✓")
+                break
+            else:
+                print(f"  Trial {j}: ζ = {zeta_trial:.4e}, J = {J_tent:.6e} ✗")
 
         if not found_better:
-            print("  Aucun pas ne diminue J (même en changeant le signe du gradient). Arrêt.")
+            print("  No improvement found. Stopping.")
             energy[n+1:] = J
             break
 
-        # Acceptation du meilleur pas
+        # Accept step
         chi_next = best_chi
         u_next = best_u
         alpha_rob_next = best_alpha_rob
         J_next = best_J
 
-        # mise à jour du pas de base (on l'augmente un peu si ça marche)
-        zeta = best_zeta + 0.001
+        # Adaptive step size: increase if successful
+        zeta = min(best_zeta * 1.2, 2.0)  # Increase by 20%, cap at 2.0
 
         energy[n+1] = J_next
 
+        # Check convergence
         diff = numpy.max(numpy.abs(chi_next[mask_R] - chi[mask_R]))
-        print(f"  J_new = {J_next:.6e}, diff_chi = {diff:.3e}, new zeta = {zeta:.3e}")
+        beta_current = numpy.mean(chi_next[mask_R])
+        
+        print(f"  Accepted: J_new = {J_next:.6e} (ΔJ = {J - J_next:.6e})")
+        print(f"  ||Δχ||_∞ = {diff:.6e}, β = {beta_current:.4f}")
 
         if diff < delta:
-            print("  Convergence atteinte : variation de chi < delta.")
+            print(f"\n{'='*60}")
+            print("CONVERGED: ||Δχ||_∞ < δ")
+            print(f"{'='*60}")
             chi = chi_next
             u = u_next
             alpha_rob_curr = alpha_rob_next
@@ -245,105 +294,186 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
         alpha_rob_curr = alpha_rob_next
         J = J_next
 
-    print('end. computing solution of Helmholtz problem, i.e., u')
+    print(f"\nFinal energy J = {J:.6e}")
+    print(f"Final β = {numpy.mean(chi[mask_R]):.4f}")
+    print('Computing final solution u...')
+    
     return chi, energy, u, grad
-
 
 
 if __name__ == '__main__':
 
-    # --- géométrie
-    N = 50
-    M = 2 * N
-    level = 0
+    # =================================================================
+    # GEOMETRY
+    # =================================================================
+    N = 50  # Grid points in x-direction
+    M = 2 * N  # Grid points in y-direction (2:1 aspect ratio)
+    level = 0  # Fractal level (0 = flat boundary)
     spacestep = 1.0 / N
 
-    # --- physique : 125 Hz, c = 343 m/s
-    c = 343.0
-    f = 125.0
+    # =================================================================
+    # PHYSICS: 125 Hz, c = 343 m/s
+    # =================================================================
+    c = 343.0  # Speed of sound [m/s]
+    f = 180.0  # Frequency [Hz]
     k_phys = 2*numpy.pi*f/c
-    L_ref = 1.0
+    L_ref = 1.0  # Reference length [m]
     k = k_phys * L_ref
     omega = k
-    print(f"Fréquence = {f} Hz  →  k = {k:.3f} rad/unité")
+    print(f"Frequency = {f} Hz  →  k = {k:.3f} rad/unit")
 
-    # --- coefficients PDE
-    beta_pde, alpha_pde, alpha_dir, beta_neu, alpha_rob, beta_rob = preprocessing._set_coefficients_of_pde(M, N)
+    # =================================================================
+    # PDE COEFFICIENTS
+    # =================================================================
+    beta_pde, alpha_pde, alpha_dir, beta_neu, alpha_rob, beta_rob = \
+        preprocessing._set_coefficients_of_pde(M, N)
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
     domain_omega, x, y, _, _ = preprocessing._set_geometry_of_domain(M, N, level)
 
-    # --- onde plane en haut (bruit autoroute)
+    # =================================================================
+    # SOURCE: Plane wave from top (highway noise)
+    # =================================================================
+    # Centered Gaussian source at top boundary
     f_dir[:, :] = 0.0
-    alpha_dir[:, :] = 1.0
-    theta_deg = 0.0
-    theta = numpy.deg2rad(theta_deg)
-    x_coords = numpy.arange(N) * spacestep
-    phase_x = numpy.exp(1j * k * numpy.sin(theta) * x_coords)
-    f_dir[0, 0:N] = phase_x
+    f[:, :] = 0.0
+    x_source = 0.5
+    y_source = 0.25  # 1/4 from top
+    i_source = int(y_source / spacestep)
+    j_source = int(x_source / spacestep)
+        
+        # Add delta function source: -Δu - k²u = f
+        # For point source: f = δ(x - x_source)
+    f[i_source, j_source] = 1.0 / (spacestep**2)
+    
+    print(f"Source: point at x = {x_source} with y = {y_source}")
 
-    # --- condition Robin initiale "mur nu" (si tu veux)
-    alpha_rob[:, :] = - omega * 1j
+    # =================================================================
+    # INITIAL ROBIN CONDITION: "Bare wall"
+    # =================================================================
+    alpha_rob[:, :] = -omega * 1j
 
-    # --- densité initiale chi sur la fractale
+    # =================================================================
+    # INITIAL DENSITY χ ON FRACTAL
+    # =================================================================
     chi = preprocessing._set_chi(M, N, x, y)
     chi = preprocessing.set2zero(chi, domain_omega)
 
-    # --- matériau absorbant dépendant de chi
+    # =================================================================
+    # ABSORBING MATERIAL: α(ω) for porous material
+    # =================================================================
+    # For ISOREL at 125 Hz (from Chapter 3 / Figure 3.10)
+    # These are example values - adjust based on your material
     Alpha = 6.311111794566079 - 6.67835254158675*1j
     alpha_rob = Alpha * chi
 
-    # --- paramètres optimisation
+    # =================================================================
+    # OPTIMIZATION PARAMETERS
+    # =================================================================
     mask_R = (domain_omega == _env.NODE_ROBIN)
     S = numpy.sum(mask_R)
-    V_0 = 1.0
-    V_obj = numpy.sum(chi[mask_R]) / S      # moyenne initiale (β)
-    zeta0 = 0.5                             # pas initial ζ_0
-    mu1 = 1e-5
+    
+    # TUNABLE PARAMETERS:
+    # -------------------
+    V_obj = 0.4  # Target volume fraction β = 40%
+    V_0 = V_obj * S  # Target total volume
+    zeta0 = 0.3  # Initial step size (TUNE THIS)
+    mu1 = 1e-9  # Volume penalty (TUNE THIS)
+    max_iter = 200  # Maximum iterations
+    delta = 1e-4  # Convergence tolerance
+    
+    print(f"\nOptimization parameters:")
+    print(f"  Target β = {V_obj:.2%}")
+    print(f"  Initial ζ = {zeta0}")
+    print(f"  Penalty μ₁ = {mu1:.2e}")
+    print(f"  Max iterations = {max_iter}")
+    print(f"  Convergence δ = {delta:.2e}")
 
-    # --- solution non contrôlée
+    # =================================================================
+    # UNCONTROLLED SOLUTION
+    # =================================================================
+    print(f"\n{'='*60}")
+    print("SOLVING UNCONTROLLED PROBLEM")
+    print(f"{'='*60}")
+    
     u = processing.solve_helmholtz(domain_omega, spacestep, omega,
                                    f, f_dir, f_neu, f_rob,
                                    beta_pde, alpha_pde, alpha_dir,
                                    beta_neu, beta_rob, alpha_rob)
     chi0 = chi.copy()
     u0 = u.copy()
+    
+    J0 = your_compute_objective_function(domain_omega, u0, spacestep, mu1, V_0, chi=chi0)
+    print(f"Uncontrolled energy J₀ = {J0:.6e}")
 
-    # --- optimisation (descente de gradient paramétrique)
+    # =================================================================
+    # OPTIMIZATION
+    # =================================================================
+    print(f"\n{'='*60}")
+    print("STARTING OPTIMIZATION")
+    print(f"{'='*60}")
+    
     chi, energy, u, grad = your_optimization_procedure(
         domain_omega, spacestep, omega,
         f, f_dir, f_neu, f_rob,
         beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob,
         Alpha, zeta0, chi, V_obj, mu1, V_0,
-        max_iter=50, delta=1e-3
+        max_iter=max_iter, delta=delta
     )
 
     chin = chi.copy()
     un = u.copy()
 
-    # --- solution relaxée
+    # Save relaxed solution
     chi_relaxed = chi.copy()
     u_relaxed = u.copy()
 
-    # --- projection finale sur {0,1}
+    # =================================================================
+    # BINARY PROJECTION
+    # =================================================================
+    print(f"\n{'='*60}")
+    print("BINARY PROJECTION")
+    print(f"{'='*60}")
+    
     mask_R = (domain_omega == _env.NODE_ROBIN)
-    chi_bin = project_to_binary(chi_relaxed, mask_R, V_obj)  # V_obj = β
+    chi_bin = project_to_binary(chi_relaxed, mask_R, V_obj)
     alpha_rob_bin = Alpha * chi_bin
 
-    # recalcul du champ pour χ binaire
+    # Recompute field for binary χ
     u_bin = processing.solve_helmholtz(domain_omega, spacestep, omega,
                                     f, f_dir, f_neu, f_rob,
                                     beta_pde, alpha_pde, alpha_dir,
                                     beta_neu, beta_rob, alpha_rob_bin)
     
+    J_bin = your_compute_objective_function(domain_omega, u_bin, spacestep, mu1, V_0, chi=chi_bin)
+    beta_bin = numpy.mean(chi_bin[mask_R])
+    
+    print(f"Binary χ: β = {beta_bin:.4f}, J = {J_bin:.6e}")
 
-
-
-    # --- plots
+    # =================================================================
+    # PLOTS
+    # =================================================================
+    print(f"\n{'='*60}")
+    print("GENERATING PLOTS")
+    print(f"{'='*60}")
+    
     postprocessing._plot_uncontroled_solution(u0, chi0)
     postprocessing._plot_controled_solution(u_bin, chi_bin)
     err = u_bin - u0
     postprocessing._plot_error(err)
     postprocessing._plot_energy_history(energy)
 
-    print('End.')
+    # =================================================================
+    # SUMMARY
+    # =================================================================
+    print(f"\n{'='*60}")
+    print("OPTIMIZATION SUMMARY")
+    print(f"{'='*60}")
+    print(f"Uncontrolled energy:  J₀ = {J0:.6e}")
+    print(f"Relaxed energy:       J  = {your_compute_objective_function(domain_omega, u_relaxed, spacestep, mu1, V_0, chi=chi_relaxed):.6e}")
+    print(f"Binary energy:        J  = {J_bin:.6e}")
+    print(f"Improvement:          ΔJ/J₀ = {(J0 - J_bin)/J0:.2%}")
+    print(f"Final β (relaxed):    {numpy.mean(chi_relaxed[mask_R]):.4f}")
+    print(f"Final β (binary):     {beta_bin:.4f}")
+    print(f"Target β:             {V_obj:.4f}")
 
+    print('\nDone.')

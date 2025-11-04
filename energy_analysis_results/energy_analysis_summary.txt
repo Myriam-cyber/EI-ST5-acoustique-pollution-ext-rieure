@@ -1,0 +1,40 @@
+======================================================================
+ENERGY ANALYSIS SUMMARY FOR FULLY ABSORBENT WALLS
+======================================================================
+
+Frequency range: [100.0, 500.0] Hz
+Number of frequency points: 41
+Material: ISOREL-like (Alpha = (6.311111794566079-6.67835254158675j))
+
+----------------------------------------------------------------------
+Wall Shape: Flat Wall
+----------------------------------------------------------------------
+Mean energy: 1.487947e+00
+Max energy: 6.825356e+00
+Min energy: 4.828831e-01
+
+Local Maxima:
+  Frequency: 180.00 Hz, Energy: 6.825356e+00
+  Frequency: 370.00 Hz, Energy: 2.838897e+00
+
+----------------------------------------------------------------------
+Wall Shape: Fractal Level 1
+----------------------------------------------------------------------
+Mean energy: 1.058927e+00
+Max energy: 2.705910e+00
+Min energy: 3.577691e-01
+
+Local Maxima:
+  Frequency: 210.00 Hz, Energy: 2.705910e+00
+  Frequency: 400.00 Hz, Energy: 1.493441e+00
+
+----------------------------------------------------------------------
+Wall Shape: Fractal Level 2
+----------------------------------------------------------------------
+Mean energy: 1.042779e+00
+Max energy: 2.912759e+00
+Min energy: 3.498558e-01
+
+Local Maxima:
+  Frequency: 210.00 Hz, Energy: 2.912759e+00
+
