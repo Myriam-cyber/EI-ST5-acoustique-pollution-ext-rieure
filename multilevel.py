@@ -379,23 +379,27 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
 # =================================================================
 # SOURCE: localised Dirichlet on top boundary
 # =================================================================
+    # SOURCE: Autoroute en haut (modélisation bruit routier descendant)
     f[:, :] = 0.0
     f_neu[:, :] = 0.0
     f_rob[:, :] = 0.0
     f_dir[:, :] = 0.0
 
-    # position de la "route" en x (au milieu)
-    x_center = 0.5
-    width = 0.2          # largeur de la zone active (en fraction de la largeur)
+    i_source = 0
+    n_sources = 6
+    spacing = N // (n_sources + 1)
 
-    j_center = int(x_center / spacestep)
-    half_w = int((width / 2) / spacestep)
+    amplitude = 2.0  # <-- augmenter ici (valeur typique : 10 à 50)
+    for n in range(n_sources):
+        j_src = (n + 1) * spacing
+        if j_src < N:
+            f_dir[i_source, j_src] = amplitude * (1.0 + 0j)
 
-    j_min = max(0, j_center - half_w)
-    j_max = min(N, j_center + half_w)
+    for j in range(N):
+        dist_center = abs(j - N // 2)
+        f_dir[i_source, j] *= np.exp(-(dist_center / (N / 3)) ** 2)
 
-    # phase potentielle (mais ici amplitude constante suffit)
-    f_dir[0, j_min:j_max] = 1.0 + 0.0j
+    print(f"Placed {n_sources} sources (amplitude={amplitude}) on top boundary.")
 
     # =================================================================
     # INITIAL ROBIN CONDITION
@@ -571,11 +575,13 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
         'energy_history': energy,
         'chi_bin': chi_bin,
         'chi_relaxed': chi_relaxed,
+        'chi0': chi0,              # <<< AJOUT
         'u0': u0,
         'u_bin': u_bin,
         'domain': domain_omega,
         'computation_time': elapsed_time
     }
+
 
 
 def compare_all_levels(results_list):
@@ -707,7 +713,7 @@ if __name__ == '__main__':
     delta = 1e-4         # Convergence tolerance
     
     # Levels to test (0=flat, 1=fractal, 2=higher fractal)
-    levels_to_test = [0, 1, 2]
+    levels_to_test = [0, 1, 2, 3]
     
     print(f"\nGlobal Parameters:")
     print(f"  Grid resolution:   N = {N}")
