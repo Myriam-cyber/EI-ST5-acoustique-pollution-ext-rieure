@@ -8,6 +8,13 @@ import scipy
 from scipy.optimize import minimize
 import scipy.io
 
+MATERIALS = {
+    "MELAMINE": {"phi": 0.99, "sigma": 14000.0, "alpha_h": 1.02},
+    "BIRCH": {"phi": 0.529, "sigma": 151429.0, "alpha_h": 1.37},
+    "LAINE_ROCHE": {"phi": 0.98, "sigma": 30000.0, "alpha_h": 1.2},
+    "LAINE_VERRE": {"phi": 0.95, "sigma": 40000.0, "alpha_h": 1.3},
+    "BETON": {"phi": 0.45, "sigma": 5000.0, "alpha_h": 2.2},
+}
 
 
 def real_to_complex(z):
@@ -38,12 +45,12 @@ def compute_alpha(omega, material):
     """
 
     #Birch LT
-    phi = 0.529  # porosity
-    gamma_p = 7.0 / 5.0
-    sigma = 151429.0  # resitivity
-    rho_0 = 1.2
-    alpha_h = 1.37  # tortuosity
-    c_0 = 340.0
+    #phi = 0.529  # porosity
+    #gamma_p = 7.0 / 5.0
+    #sigma = 151429.0  # resitivity
+    #rho_0 = 1.2
+    #alpha_h = 1.37  # tortuosity
+    #c_0 = 340.0
     
     # melamine foam 
     #phi = 0.99  # porosity
@@ -54,20 +61,28 @@ def compute_alpha(omega, material):
     #c_0 = 340.0
     
     # laine de verre (source : https://backend.orbit.dtu.dk/ws/portalfiles/portal/337029887/ForumAcusticum_Compilation_1.pdf)
-    #phi = 0.95  # porosity
+    #phi = 0.98  # porosity
     #gamma_p = 7.0 / 5.0
-    #sigma = 8.0e4  # resitivity
+    #sigma = 4.0e4  # resitivity
+    #rho_0 = 1.2
+    #alpha_h = 1.3  # tortuosity
+    #c_0 = 340.0
+    
+    # laine de roche (source : https://scispace.com/pdf/characterizing-modelling-and-optimizing-the-sound-absorption-1p9oyra5mr.pdf)
+    #phi = 0.98  # porosity
+    #gamma_p = 7.0 / 5.0
+    #sigma = 30000  # resitivity
     #rho_0 = 1.2
     #alpha_h = 1.2  # tortuosity
     #c_0 = 340.0
     
-    # laine de roche (source : https://scispace.com/pdf/characterizing-modelling-and-optimizing-the-sound-absorption-1p9oyra5mr.pdf)
-    #phi = 0.94  # porosity
-    #gamma_p = 7.0 / 5.0
-    #sigma = 8.0e4  # resitivity
-    #rho_0 = 1.2
-    #alpha_h = 1.3  # tortuosity
-    #c_0 = 340.0
+    phi = MATERIALS[material]["phi"]
+    sigma = MATERIALS[material]["sigma"]
+    alpha_h = MATERIALS[material]["alpha_h"]
+    gamma_p = 7.0/5.0
+    rho_0 = 1.2
+    c_0 = 340.0
+
 
 
     
@@ -201,85 +216,95 @@ def compute_alpha(omega, material):
 
 def run_compute_alpha(material):
     print('Computing alpha...')
-    numb_omega = 100  # 1000      # à changer selon qu'on veut une courbe plus lisse ou pas
-    # omegas = numpy.logspace(numpy.log10(600), numpy.log10(30000), num=numb_omega)
-    omegas = numpy.linspace(2.0 * numpy.pi, numpy.pi * 1000, num=numb_omega)
+    numb_omega = 1000
+    omegas = numpy.linspace(2.0 * numpy.pi, 2.0 * numpy.pi * 1000, num=numb_omega)
+
+    
     temp = [compute_alpha(omega, material=material) for omega in omegas]
-    print("temp:", "------", temp)
     alphas, errors = map(list, zip(*temp))
     alphas = numpy.array(alphas)
     errors = numpy.array(errors)
 
+    frequencies = omegas / (2.0 * numpy.pi)  # <<< ajout conversion en Hz
+
     print('Writing alpha...')
-    output_filename = 'dta_omega_' + str(material) + '.mtx'
-    scipy.io.mmwrite(output_filename, omegas.reshape(alphas.shape[0], 1), field='complex', symmetry='general')
-    output_filename = 'dta_alpha_' + str(material) + '.mtx'
-    scipy.io.mmwrite(output_filename, alphas.reshape(alphas.shape[0], 1), field='complex', symmetry='general')
-    output_filename = 'dta_error_' + str(material) + '.mtx'
-    scipy.io.mmwrite(output_filename, errors.reshape(errors.shape[0], 1), field='complex', symmetry='general')
+    scipy.io.mmwrite('dta_omega_' + str(material) + '.mtx', omegas.reshape(len(omegas),1))
+    scipy.io.mmwrite('dta_freq_' + str(material) + '.mtx', frequencies.reshape(len(frequencies),1))  # <<< nouveau
+    scipy.io.mmwrite('dta_alpha_' + str(material) + '.mtx', alphas.reshape(len(alphas),1), field='complex')
+    scipy.io.mmwrite('dta_error_' + str(material) + '.mtx', errors.reshape(len(errors),1))
 
-
-    return
 
 
 def run_plot_alpha(material):
-    color = 'darkblue'
-
     print('Reading alpha...')
-    input_filename = 'dta_omega_' + str(material) + '.mtx'
-    omegas = scipy.io.mmread(input_filename)
-    omegas = omegas.reshape(omegas.shape[0])
-    input_filename = 'dta_alpha_' + str(material) + '.mtx'
-    alphas = scipy.io.mmread(input_filename)
+
+    # Read frequency (Hz)
+    freqs = scipy.io.mmread('dta_freq_' + str(material) + '.mtx')
+    freqs = freqs.reshape(freqs.shape[0])
+
+    # Read alpha and error
+    alphas = scipy.io.mmread('dta_alpha_' + str(material) + '.mtx')
     alphas = alphas.reshape(alphas.shape[0])
-    input_filename = 'dta_error_' + str(material) + '.mtx'
-    errors = scipy.io.mmread(input_filename)
+    errors = scipy.io.mmread('dta_error_' + str(material) + '.mtx')
     errors = errors.reshape(errors.shape[0])
 
-    print('Plotting alpha...')
+    # Compute ratio Re(alpha)/Im(alpha)
+    ratio = numpy.real(alphas) / numpy.imag(alphas)
+
+    # ---- Plot ratio ----
     fig = matplotlib.pyplot.figure()
-    matplotlib.pyplot.subplot(1, 1, 1)
-    matplotlib.pyplot.plot(numpy.real(omegas), numpy.real(alphas), color=color)
-    matplotlib.pyplot.xlabel(r'$\omega$')
-    matplotlib.pyplot.ylabel(r'$\operatorname{Re}(\alpha)$')
-    matplotlib.pyplot.ylim(0, 35)
-    # matplotlib.pyplot.show()
-    matplotlib.pyplot.savefig('fig_alpha_real_' + str(material) + '.jpg')
+    matplotlib.pyplot.plot(freqs, ratio)
+    matplotlib.pyplot.xlabel('Frequency (Hz)')
+    matplotlib.pyplot.ylabel('Re(alpha) / Im(alpha)')
+    matplotlib.pyplot.title('Ratio Re(alpha)/Im(alpha) vs Frequency')
+    matplotlib.pyplot.grid(True)
+    matplotlib.pyplot.savefig('fig_ratio_alpha_freq_' + str(material) + '.jpg')
     matplotlib.pyplot.close(fig)
 
-    fig = matplotlib.pyplot.figure()
-    matplotlib.pyplot.subplot(1, 1, 1)
-    matplotlib.pyplot.plot(numpy.real(omegas), numpy.imag(alphas), color=color)
-    matplotlib.pyplot.xlabel(r'$\omega$')
-    matplotlib.pyplot.ylabel(r'$\operatorname{Im}(\alpha)$')
-    matplotlib.pyplot.ylim(-120, 10)
-    # matplotlib.pyplot.show()
-    matplotlib.pyplot.savefig('fig_alpha_imag_' + str(material) + '.jpg')
-    matplotlib.pyplot.close(fig)
+    #print("Saved ratio figure: fig_ratio_alpha_freq_" + str(material) + ".jpg")
+    
+def plot_all_materials(materials):
+    colors = {
+        "MELAMINE": "blue",
+        "BIRCH": "green",
+        "LAINE_ROCHE": "red",
+        "LAINE_VERRE": "purple",
+        "BETON": "orange"
+    }
 
     fig = matplotlib.pyplot.figure()
-    ax = matplotlib.pyplot.axes()
-    ax.fill_between(numpy.real(omegas), numpy.real(errors), color=color)
-    matplotlib.pyplot.ylim(1.e-9, 1.e-4)
-    matplotlib.pyplot.yscale('log')
-    matplotlib.pyplot.xlabel(r'$\omega$')
-    matplotlib.pyplot.ylabel(r'$e(\alpha)$')
-    # matplotlib.pyplot.show()
-    matplotlib.pyplot.savefig('fig_error_' + str(material) + '.jpg')
-    matplotlib.pyplot.close(fig)
+    
+    for mat in materials:
+        freqs = scipy.io.mmread(f'dta_freq_{mat}.mtx').reshape(-1)
+        alphas = scipy.io.mmread(f'dta_alpha_{mat}.mtx').reshape(-1)
 
-    return
+        ratio = abs(numpy.real(alphas)) / abs(numpy.imag(alphas))
+
+        matplotlib.pyplot.plot(freqs, ratio, label=mat, color=colors[mat])
+
+    matplotlib.pyplot.xlabel("Frequency (Hz)")
+    matplotlib.pyplot.ylabel("Re(alpha)/Im(alpha)")
+    matplotlib.pyplot.title("Comparison of mod(Re(alpha)/Im(alpha)) for porous materials")
+    matplotlib.pyplot.legend()
+    matplotlib.pyplot.grid(True)
+    matplotlib.pyplot.savefig("compare_ratio_alpha_materials.jpg")
+    matplotlib.pyplot.close(fig)
+    print("Saved: compare_ratio_alpha_materials.jpg")
+
 
 
 def run():
-    material = 'LAINE DE VERRE'
-    run_compute_alpha(material)
-    run_plot_alpha(material)
-    return
+    materials = ["MELAMINE", "BIRCH", "LAINE_ROCHE", "LAINE_VERRE", "BETON"]
+
+    for mat in materials:
+        #print(f"Processing {mat}...")
+        run_compute_alpha(mat)
+
+    # Plot on a single figure
+    plot_all_materials(materials)
+
 
 
 if __name__ == '__main__':
     run()
     print('End.')
-
-
