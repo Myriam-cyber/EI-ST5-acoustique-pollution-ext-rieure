@@ -44,12 +44,12 @@ def compute_alpha(omega, material):
     """
 
     #Birch LT
-    phi = 0.529  # porosity
-    gamma_p = 7.0 / 5.0
-    sigma = 151429.0  # resitivity
-    rho_0 = 1.2
-    alpha_h = 1.37  # tortuosity
-    c_0 = 340.0
+    #phi = 0.529  # porosity
+    #gamma_p = 7.0 / 5.0
+    #sigma = 151429.0  # resitivity
+    #rho_0 = 1.2
+    #alpha_h = 1.37  # tortuosity
+    #c_0 = 340.0
     
     # melamine foam 
     #phi = 0.99  # porosity
@@ -60,20 +60,28 @@ def compute_alpha(omega, material):
     #c_0 = 340.0
     
     # laine de verre (source : https://backend.orbit.dtu.dk/ws/portalfiles/portal/337029887/ForumAcusticum_Compilation_1.pdf)
-    #phi = 0.95  # porosity
+    #phi = 0.98  # porosity
     #gamma_p = 7.0 / 5.0
-    #sigma = 8.0e4  # resitivity
+    #sigma = 4.0e4  # resitivity
+    #rho_0 = 1.2
+    #alpha_h = 1.3  # tortuosity
+    #c_0 = 340.0
+    
+    # laine de roche (source : https://scispace.com/pdf/characterizing-modelling-and-optimizing-the-sound-absorption-1p9oyra5mr.pdf)
+    #phi = 0.98  # porosity
+    #gamma_p = 7.0 / 5.0
+    #sigma = 30000  # resitivity
     #rho_0 = 1.2
     #alpha_h = 1.2  # tortuosity
     #c_0 = 340.0
     
-    # laine de roche (source : https://scispace.com/pdf/characterizing-modelling-and-optimizing-the-sound-absorption-1p9oyra5mr.pdf)
-    #phi = 0.94  # porosity
-    #gamma_p = 7.0 / 5.0
-    #sigma = 8.0e4  # resitivity
-    #rho_0 = 1.2
-    #alpha_h = 1.3  # tortuosity
-    #c_0 = 340.0
+    phi = MATERIALS[material]["phi"]
+    sigma = MATERIALS[material]["sigma"]
+    alpha_h = MATERIALS[material]["alpha_h"]
+    gamma_p = 7.0/5.0
+    rho_0 = 1.2
+    c_0 = 340.0
+
 
 
     
@@ -287,6 +295,7 @@ def run():
 if __name__ == '__main__':
     run()
     print('End.')
+
 
 
 
