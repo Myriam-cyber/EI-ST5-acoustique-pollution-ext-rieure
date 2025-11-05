@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*- 
 """
 Acoustic Absorption Optimization for Multiple Fractal Levels
 =============================================================
@@ -22,6 +22,31 @@ import _env
 import preprocessing
 import processing
 import postprocessing
+
+
+def adjust_beta_for_fractal_level(level, beta_flat, domain_omega, perimeter_level0=None):
+    """
+    Adjust the target beta based on the fractal level and boundary perimeter.
+    If perimeter_level0 is not provided, it is calculated for level 0.
+    """
+    # Compte les points sur la frontière Robin
+    mask_R = (domain_omega == _env.NODE_ROBIN)
+    S = np.sum(mask_R)  # surface de la frontière Robin
+
+    # Si perimeter_level0 n'a pas été passé, calculer le périmètre pour level 0 et le stocker
+    if perimeter_level0 is None:
+        perimeter_level0 = S  # Utilisation du périmètre pour le level 0 comme référence
+
+    # Calculer le nombre de pixels absorbants à partir de beta_flat pour level 0
+    total_pixels_level0 = int(beta_flat * perimeter_level0)
+
+    # Pour les autres niveaux, ajuster beta pour obtenir le même nombre de pixels absorbants
+    if level == 0:
+        return beta_flat  # Pour le niveau plat, beta reste tel quel
+    else:
+        # Calculer le beta ajusté pour le niveau actuel afin de placer le même nombre de pixels
+        beta_adjusted = total_pixels_level0 / S
+        return beta_adjusted
 
 
 # =====================================================================
@@ -234,12 +259,12 @@ def optimization_procedure(domain_omega, spacestep, omega,
     energy[0] = J
 
     if verbose:
-        print(f"Initial energy J₀ = {J:.6e}")
+        print(f"Initial energy J0 = {J:.6e}")
         print(f"Initial β = {np.mean(chi[mask_R]):.4f} (target: {V_obj:.4f})")
 
     # bornes sur ζ
     zeta = zeta0
-    zeta_min, zeta_max = 1e-4, 2.0
+    zeta_min, zeta_max = 1e-5, 2.0
 
     for n in range(numb_iter):
         if verbose:
@@ -265,7 +290,7 @@ def optimization_procedure(domain_omega, spacestep, omega,
             energy[n + 1:] = J
             break
 
-        # 3) Backtracking sur J pour trouver un ζ_trial qui diminue J
+        # 3) Backtracking sur J
         accepted = False
         zeta_trial = zeta
 
@@ -285,7 +310,7 @@ def optimization_procedure(domain_omega, spacestep, omega,
             if verbose:
                 print(f"  Trial {j}: ζ_trial = {zeta_trial:.4e}, J_trial = {J_tent:.6e}")
 
-            if J_tent < J:  # on veut simplement J_tent < J
+            if J_tent < J:
                 best_J = J_tent
                 best_chi = chi_tent
                 best_u = u_tent
@@ -293,7 +318,7 @@ def optimization_procedure(domain_omega, spacestep, omega,
                 accepted = True
                 break
             else:
-                zeta_trial *= 0.5  # on diminue le pas et on réessaie
+                zeta_trial *= 0.5
 
         if not accepted:
             if verbose:
@@ -309,8 +334,8 @@ def optimization_procedure(domain_omega, spacestep, omega,
             print(f"  Accepted step: J_new = {best_J:.6e} (ΔJ = {J - best_J:.6e})")
             print(f"  ||Δχ||_∞ = {diff:.6e}, β = {beta_current:.4f}")
 
-        # 5) Adaptation de ζ en fonction de diff
-        if diff > 0.3:
+        # 5) Adaptation de ζ
+        if diff > 0.1:
             zeta = max(zeta_trial * 0.5, zeta_min)
             if verbose:
                 print(f"  Large move in χ (diff={diff:.3f}) → reducing ζ to {zeta:.4e}")
@@ -346,6 +371,7 @@ def optimization_procedure(domain_omega, spacestep, omega,
     return chi, energy, u, grad
 
 
+
 # =====================================================================
 #  LANCEMENT POUR UN NIVEAU DE FRACTAL DONNÉ
 # =====================================================================
@@ -372,7 +398,7 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     print(f"Frequency = {f_Hz} Hz  →  k = {k:.3f} rad/unit")
     print(f"Grid: {M}×{N}, spacestep = {spacestep:.4f}")
 
-    # α(f) à partir des fichiers .mtx (MELAMINE ici)
+    # α(f)
     freq_tab_alpha, alpha_tab_alpha = load_alpha_table(
         'dta_freq_MELAMINE.mtx',
         'dta_alpha_MELAMINE.mtx'
@@ -391,15 +417,19 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     n_robin = np.sum(mask_R)
     print(f"Robin boundary points: {n_robin}")
 
+    # Calcul du volume cible en fonction du niveau fractal
+    V_0 = adjust_beta_for_fractal_level(level, V_obj, domain_omega) * np.sum(mask_R)
+
+
     # Adaptation de ζ₀ selon le niveau de fractal
     if level == 0:
         zeta_level = zeta0 * 15.0
     elif level == 1:
         zeta_level = zeta0 * 1.0
     elif level == 2:
-        zeta_level = zeta0 * 0.000005
+        zeta_level = zeta0 * 0.5
     else:  # level >= 3
-        zeta_level = zeta0 * 0.000005
+        zeta_level = zeta0 * 0.15
 
     print(f"Using initial step size ζ₀(level={level}) = {zeta_level:.4e}")
 
@@ -410,17 +440,28 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     # Condition Robin initiale 'mur nu'
     alpha_rob[:, :] = -omega * 1j
 
-    # Densité initiale χ
-    chi = preprocessing._set_chi(M, N, x, y)
-    chi = preprocessing.set2zero(chi, domain_omega)
-    chi0 = chi.copy()
+    # Condition Robin "mur nu" (sera ensuite pondérée par χ)
+    alpha_rob[:, :] = -omega * 1j
 
-    # Coefficient de Robin du matériau
-    alpha_rob = Alpha * chi
+    # -----------------------------------------------------------------
+    # DENSITÉ INITIALE χ₀
+    # -----------------------------------------------------------------
+    # 1) motif de départ (bande horizontale dans la fractale)
+    chi_init = preprocessing._set_chi(M, N, x, y)
+    chi_init = preprocessing.set2zero(chi_init, domain_omega)
 
-    # Volume cible
-    S = np.sum(mask_R)
-    V_0 = V_obj * S
+    # 2) on impose le bon volume β = V_obj :
+    #    - si tu veux du 0/1 dès le début -> project_to_binary
+    #    - si tu préfères une densité continue -> project_Uad_star
+    chi0 = project_to_binary(chi_init, mask_R, V_obj)
+    # chi0 = project_Uad_star(chi_init, mask_R, V_obj)  # alternative continue
+
+    beta0 = np.mean(chi0[mask_R])
+    print(f"Initial chi0: beta0 = {beta0:.4f} (target {V_obj:.4f})")
+
+    # 3) c'est χ₀ qui est utilisé pour le Robin matériel et pour J₀
+    alpha_rob = Alpha * chi0
+
 
     print("\nOptimization parameters:")
     print(f"  Target β = {V_obj:.2%}")
@@ -440,7 +481,7 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
                                     beta_pde, alpha_pde, alpha_dir,
                                     beta_neu, beta_rob, alpha_rob)
     J0 = compute_objective_function(domain_omega, u0, spacestep, mu1, V_0, chi=chi0)
-    print(f"Uncontrolled energy J₀ = {J0:.6e}")
+    print(f"Uncontrolled energy J0 = {J0:.6e}")
 
     # Optimisation
     print("\n" + "=" * 60)
@@ -451,7 +492,7 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
         domain_omega, spacestep, omega,
         f, f_dir, f_neu, f_rob,
         beta_pde, alpha_pde, alpha_dir, beta_neu, beta_rob, alpha_rob,
-        Alpha, zeta_level, chi, V_obj, mu1, V_0,
+        Alpha, zeta_level, chi0, V_obj, mu1, V_0,
         max_iter=max_iter, delta=delta, verbose=True
     )
 
@@ -489,11 +530,11 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
 
     # u0 et χ0
     postprocessing.myimshow(np.real(u0),
-                            title=f'Level {level}: Re(u₀)',
+                            title=f'Level {level}: Re(u0)',
                             colorbar='colorbar', cmap='jet', vmin=-1, vmax=1,
                             filename=f'{output_dir}/fig_u0_re.jpg')
     postprocessing.myimshow(chi0,
-                            title=f'Level {level}: χ₀',
+                            title=f'Level {level}: chi0 (initial, beta={beta0:.2f})',
                             colorbar='colorbar', cmap='jet', vmin=0, vmax=1,
                             filename=f'{output_dir}/fig_chi0.jpg')
 
@@ -503,20 +544,20 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
                             colorbar='colorbar', cmap='jet', vmin=-1, vmax=1,
                             filename=f'{output_dir}/fig_un_re.jpg')
     postprocessing.myimshow(chi_bin,
-                            title=f'Level {level}: χ_opt (binary)',
+                            title=f'Level {level}: chi_opt (binary, beta={beta_bin:.2f})',
                             colorbar='colorbar', cmap='jet', vmin=0, vmax=1,
                             filename=f'{output_dir}/fig_chin_binary.jpg')
 
     # χ relaxée
     postprocessing.myimshow(chi_relaxed,
-                            title=f'Level {level}: χ_opt (relaxed)',
+                            title=f'Level {level}: chi_opt (relaxed, beta={beta_relaxed:.2f})',
                             colorbar='colorbar', cmap='jet', vmin=0, vmax=1,
                             filename=f'{output_dir}/fig_chin_relaxed.jpg')
 
     # erreur
     err = u_bin - u0
     postprocessing.myimshow(np.real(err),
-                            title=f'Level {level}: Re(u_opt - u₀)',
+                            title=f'Level {level}: Re(u_opt - u0)',
                             colorbar='colorbar', cmap='jet', vmin=-1, vmax=1,
                             filename=f'{output_dir}/fig_err_real.jpg')
 
@@ -538,10 +579,11 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
     print(f"LEVEL {level} OPTIMIZATION SUMMARY")
     print("=" * 60)
     print(f"Computation time:     {elapsed_time:.1f} seconds")
-    print(f"Uncontrolled energy:  J₀ = {J0:.6e}")
+    print(f"Uncontrolled energy:  J0 = {J0:.6e}")
     print(f"Relaxed energy:       J  = {J_relaxed:.6e}")
     print(f"Binary energy:        J  = {J_bin:.6e}")
-    print(f"Improvement:          ΔJ/J₀ = {(J0 - J_bin)/J0:.2%}")
+    print(f"Improvement:          ΔJ/J0 = {(J0 - J_bin)/J0:.2%}")
+    print(f"Initial β (chi0):     {beta0:.4f}")
     print(f"Final β (relaxed):    {beta_relaxed:.4f}")
     print(f"Final β (binary):     {beta_bin:.4f}")
     print(f"Target β:             {V_obj:.4f}")
@@ -567,6 +609,7 @@ def run_optimization_for_level(level, N, f_Hz, V_obj, zeta0, mu1, max_iter, delt
         'domain': domain_omega,
         'computation_time': elapsed_time
     }
+
 
 
 # =====================================================================
@@ -596,7 +639,7 @@ def compare_all_levels(results_list):
     x = np.arange(len(levels))
     width = 0.35
 
-    ax1.bar(x - width / 2, J0_values, width, label='Uncontrolled (J₀)', alpha=0.8)
+    ax1.bar(x - width / 2, J0_values, width, label='Uncontrolled (J0)', alpha=0.8)
     ax1.bar(x + width / 2, J_bin_values, width, label='Optimized (J_opt)', alpha=0.8)
     ax1.set_xlabel('Fractal Level', fontsize=12)
     ax1.set_ylabel('Energy J', fontsize=12)
@@ -646,7 +689,7 @@ def compare_all_levels(results_list):
 
     for idx, result in enumerate(results_list):
         im = axes[idx].imshow(result['chi_bin'], cmap='jet', vmin=0, vmax=1)
-        axes[idx].set_title(f"Level {result['level']}: χ_opt (binary)", fontsize=12)
+        axes[idx].set_title(f"Level {result['level']}: chi_opt (binary)", fontsize=12)
         axes[idx].axis('off')
         plt.colorbar(im, ax=axes[idx], fraction=0.046, pad=0.04)
 
@@ -658,7 +701,7 @@ def compare_all_levels(results_list):
     print("\n" + "=" * 70)
     print("COMPARISON SUMMARY TABLE")
     print("=" * 70)
-    print(f"{'Level':<8} {'Robin pts':<12} {'J₀':<12} {'J_opt':<12} "
+    print(f"{'Level':<8} {'Robin pts':<12} {'J0':<12} {'J_opt':<12} "
           f"{'Improvement':<14} {'Time (s)':<10}")
     print("-" * 70)
     for r in results_list:
@@ -695,18 +738,18 @@ if __name__ == '__main__':
     N = 50
     f_Hz = 180.0
     V_obj = 0.4
-    zeta0 = 0.015
+    zeta0 = 0.15
     mu1 = 1e-9
     max_iter = 300
     delta = 1e-4
-    levels_to_test = [0,1,2,3]
+    levels_to_test = [0, 1, 2, 3]
 
     print("\nGlobal Parameters:")
     print(f"  Grid resolution:   N = {N}")
     print(f"  Frequency:         f = {f_Hz} Hz")
     print(f"  Target volume:     β = {V_obj:.1%}")
-    print(f"  Base step size:    ζ₀ = {zeta0}")
-    print(f"  Penalty parameter: μ₁ = {mu1:.2e}")
+    print(f"  Base step size:    ζ0 = {zeta0}")
+    print(f"  Penalty parameter: μ1 = {mu1:.2e}")
     print(f"  Max iterations:    {max_iter}")
     print(f"  Convergence tol:   δ = {delta:.2e}")
     print(f"  Levels to test:    {levels_to_test}")

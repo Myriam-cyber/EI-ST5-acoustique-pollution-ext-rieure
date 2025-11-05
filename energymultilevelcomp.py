@@ -95,12 +95,12 @@ if __name__ == '__main__':
     # ----------------------------------------------------------------
     N = 50
     levels_to_test = [0, 1, 2, 3]      # niveaux de fractal
-    beta_list = [0.2, 0.4, 0.6, 0.8, 1.0]  # fractions de surface absorbante
+    beta_list = [0.4,0.5,0.6, 0.8]  # fractions de surface absorbante
 
     f_opt = 180.0       # fréquence de référence pour l'optimisation de χ
     f_min = 100.0
-    f_max = 1000.0
-    n_freq = 500
+    f_max = 400.0
+    n_freq = 200
     frequencies = np.linspace(f_min, f_max, n_freq)
 
     zeta0 = 0.15
