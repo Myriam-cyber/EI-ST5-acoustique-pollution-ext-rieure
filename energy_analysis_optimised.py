@@ -11,7 +11,7 @@ This script performs energy vs frequency analysis comparing:
 For each frequency:
 - Compute α(f) from material data
 - Solve with fully absorbent wall
-- Optimize χ (relaxed solution)
+f- Optimize χ (relaxed solution)
 - Project to binary solution
 - Compute energy for all three cases
 """
@@ -422,6 +422,34 @@ def compute_energy_all_cases(domain_omega, spacestep, frequencies,
     return energies_absorbent, energies_relaxed, energies_binary
 
 
+def build_road_source(f, f_dir, f_neu, f_rob, amplitude=2.0, n_sources=6):
+    """
+    Modélisation du bruit d'autoroute sur le bord supérieur (Dirichlet).
+
+    - n_sources 'voitures' réparties horizontalement,
+    - pondération gaussienne pour densité plus forte au centre.
+    """
+    f[:, :] = 0.0
+    f_neu[:, :] = 0.0
+    f_rob[:, :] = 0.0
+    f_dir[:, :] = 0.0
+
+    M, N = f_dir.shape
+    i_source = 0  # ligne du haut
+    spacing = N // (n_sources + 1)
+
+    # Sources ponctuelles
+    for n in range(n_sources):
+        j_src = (n + 1) * spacing
+        if j_src < N:
+            f_dir[i_source, j_src] = amplitude * (1.0 + 0.0j)
+
+    # Gaussienne pour densité plus forte au centre
+    for j in range(N):
+        dist_center = abs(j - N // 2)
+        f_dir[i_source, j] *= np.exp(-(dist_center / (N / 3)) ** 2)
+
+    return f, f_dir, f_neu, f_rob
 # ============================================================
 # MAIN SCRIPT
 # ============================================================
@@ -457,8 +485,8 @@ if __name__ == '__main__':
     
     # Frequency range for analysis
     freq_min = max(100.0, freq_tab_alpha[0])
-    freq_max = min(1000.0, freq_tab_alpha[-1])
-    n_frequencies = 100  # Reduced for faster computation
+    freq_max = min(700.0, freq_tab_alpha[-1])
+    n_frequencies = 200  # Reduced for faster computation
     frequencies = np.linspace(freq_min, freq_max, n_frequencies)
     
     print(f"\nAnalysis parameters:")
@@ -487,14 +515,15 @@ if __name__ == '__main__':
         preprocessing._set_coefficients_of_pde(M, N)
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
     
-    # Plane wave source from top
-    f_dir[:, :] = 0.0
-    theta_deg = 0.0
-    theta = np.deg2rad(theta_deg)
-    x_coords = np.arange(N) * spacestep
-    k_ref = 2.0 * np.pi * 250.0 / 343.0
-    phase_x = np.exp(1j * k_ref * np.sin(theta) * x_coords)
-    f_dir[0, 0:N] = phase_x
+    #source
+    # =====================================================================
+    #  SOURCES : bruit d'autoroute en haut du domaine
+    # ===============================
+
+    # Sources (autoroute en haut)
+    f, f_dir, f_neu, f_rob = build_road_source(f, f_dir, f_neu, f_rob,
+                                                amplitude=2.0, n_sources=6)
+
     
     # ============================================================
     # WALL CONFIGURATIONS
@@ -556,11 +585,11 @@ if __name__ == '__main__':
         plt.figure(figsize=(14, 8))
         
         plt.plot(frequencies, energies_absorbent, linewidth=2.5, 
-                color='black', label='Fully Absorbent (χ=1)', alpha=0.8, linestyle='-',marker='o-', markersize=4)
+                color='black', label='Fully Absorbent (χ=1)', alpha=0.8, linestyle='-')
         plt.plot(frequencies, energies_relaxed, linewidth=2.5, 
-                color='blue', label=f'Optimized Relaxed (β={V_obj:.1%})', alpha=0.8, linestyle='-',marker='s-', markersize=4)
+                color='blue', label=f'Optimized Relaxed (β={V_obj:.1%})', alpha=0.8, linestyle='-')
         plt.plot(frequencies, energies_binary, linewidth=2.5, 
-                color='red', label=f'Optimized Binary (β={V_obj:.1%})', alpha=0.8, linestyle='--',marker='^-', markersize=4)
+                color='red', label=f'Optimized Binary (β={V_obj:.1%})', alpha=0.8, linestyle='--')
         
         plt.xlabel('Frequency (Hz)', fontsize=13)
         plt.ylabel('Acoustic Energy', fontsize=13)

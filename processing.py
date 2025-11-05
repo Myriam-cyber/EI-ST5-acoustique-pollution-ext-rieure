@@ -156,7 +156,7 @@ def compute_stiffness_matrix(domain, space_step, f, beta_pde):
                 mat[row, row] = 1.0
                 rhs[row] = 0.0
 
-    return mat, rhs&
+    return mat, rhs
 
 
 def compute_mass_matrix(domain, space_step, alpha_pde):
