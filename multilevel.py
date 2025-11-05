@@ -79,30 +79,63 @@ def project_Uad_star(chi_tentative, mask_R, beta_target, tol=1e-6, max_iter=50):
 
 def project_to_binary(chi_relaxed, mask_R, beta_target):
     """
-    Final projection P_{U_ad(β)}(χ_relaxed) onto {0,1}:
-    - Only modifies Robin boundary (mask_R)
-    - Sets 1 on largest values to respect volume β
-    - Sets 0 elsewhere
+    Projection finale P_{U_ad(β)}(χ_relaxed) sur {0,1}:
+    - Modifie uniquement la frontière Robin (mask_R)
+    - Met 1 sur les plus grandes valeurs pour respecter le volume β
+    - Met 0 ailleurs
     
-    beta_target = desired mean of χ on Γ_R
+    beta_target = moyenne désirée de χ sur Γ_R
     """
     chi_bin = np.zeros_like(chi_relaxed)
 
+    # 1. Obtenir les coordonnées et les valeurs "floues"
     idx_i, idx_j = np.where(mask_R)
-    vals = chi_relaxed[idx_i, idx_j]
-    S = vals.size
+    vals_relaxed = chi_relaxed[idx_i, idx_j]
+    
+    S = vals_relaxed.size
     if S == 0:
         return chi_bin
 
-    # Number of points to set to 1: β * S
+    # --- Logique de projection binaire (inchangée) ---
     nb_ones = int(round(beta_target * S))
     nb_ones = max(0, min(nb_ones, S))
-
-    # Indices of largest values
-    order = np.argsort(vals)[::-1]  # descending
+    order = np.argsort(vals_relaxed)[::-1]  # descendant
     sel = order[:nb_ones]
-
     chi_bin[idx_i[sel], idx_j[sel]] = 1.0
+    
+    # --- START: Code de traçage (Plotting) révisé ---
+    
+    # 2. Obtenir les nouvelles valeurs binaires (0 ou 1)
+    vals_bin = chi_bin[idx_i, idx_j]
+
+    # 3. Créer un axe X : "Index du point" de 0 à S-1
+    #    C'est la "position déroulée" le long de la frontière.
+    x_position_unrolled = np.arange(S)
+
+    # 4. Créer le graphique de comparaison
+    plt.figure(figsize=(15, 7))
+    plt.title(f"Projection Binaire (Cible β = {beta_target:.2%}) - Frontière déroulée")
+    
+    # Tracer les valeurs "floues" (bleu) en tant que ligne continue
+    plt.plot(x_position_unrolled, vals_relaxed, 'b-', 
+             label='χ Relaxé (Entrée)', alpha=0.7, linewidth=1.5)
+    
+    # Tracer les valeurs finales (rouge) en "escalier" (step plot)
+    # C'est la meilleure façon de voir des données 0/1
+    plt.step(x_position_unrolled, vals_bin, 'r-', where='mid',
+             label='χ Binaire (Sortie)', linewidth=1.5)
+    
+    plt.xlabel("Index du point sur la frontière (déroulée)")
+    plt.ylabel("Valeur de χ (Densité de matériau)")
+    plt.ylim(-0.1, 1.1) # Marge visuelle
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    
+    # 5. Afficher le graphique
+    plt.show() # 'block=False' permet au script de continuer
+
+    # --- END: Code de traçage ---
 
     return chi_bin
 
@@ -194,7 +227,7 @@ def optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu, f_ro
         print(f"Initial β = {np.mean(chi[mask_R]):.4f} (target: {V_obj:.4f})")
 
     zeta = zeta0
-    rel_tol = 1e-8
+    rel_tol = 1e-6
 
     for n in range(numb_iter):
         if verbose:
@@ -701,13 +734,13 @@ if __name__ == '__main__':
     N = 50               # Grid resolution
     f_Hz = 180.0         # Frequency [Hz]
     V_obj = 0.4          # Target volume fraction (40%)
-    zeta0 = 0.15          # Initial step size
-    mu1 = 1e-9           # Volume penalty
+    zeta0 = 0.7          # Initial step size
+    mu1 = 1e-10           # Volume penalty
     max_iter = 300     # Maximum iterations
-    delta = 1e-4         # Convergence tolerance
+    delta = 5e-5         # Convergence tolerance
     
     # Levels to test (0=flat, 1=fractal, 2=higher fractal)
-    levels_to_test = [0, 1, 2]
+    levels_to_test = [1]
     
     print(f"\nGlobal Parameters:")
     print(f"  Grid resolution:   N = {N}")
@@ -747,21 +780,3 @@ if __name__ == '__main__':
     # =================================================================
     # GENERATE COMPARISON PLOTS
     # =================================================================
-    if len(results_all) > 0:
-        compare_all_levels(results_all)
-        
-        print(f"\n{'='*70}")
-        print("ALL OPTIMIZATIONS COMPLETED SUCCESSFULLY")
-        print(f"{'='*70}")
-        print(f"\nTotal levels computed: {len(results_all)}")
-        print(f"Results saved in:")
-        for r in results_all:
-            print(f"  - results_level_{r['level']}/")
-        print(f"  - results_comparison/")
-        print("\n" + "="*70)
-    else:
-        print("\n{'!'*70}")
-        print("NO RESULTS GENERATED - All optimizations failed")
-        print("{'!'*70}\n")
-    
-    print('\nDone.')

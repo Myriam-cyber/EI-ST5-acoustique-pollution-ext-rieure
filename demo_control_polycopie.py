@@ -1,6 +1,6 @@
 
 # Python packages
-import matplotlib.pyplot
+import matplotlib.pyplot as plt
 import numpy
 import os
 # MRG packages
@@ -55,23 +55,59 @@ def project_to_binary(chi_relaxed, mask_R, beta_target):
     
     beta_target = desired mean of χ on Γ_R
     """
+    # Note: Using 'np' as imported in your main script
     chi_bin = numpy.zeros_like(chi_relaxed)
 
+    # Get coordinates and "fuzzy" values from the boundary
     idx_i, idx_j = numpy.where(mask_R)
-    vals = chi_relaxed[idx_i, idx_j]
-    S = vals.size
+    vals_relaxed = chi_relaxed[idx_i, idx_j]
+    
+    S = vals_relaxed.size
     if S == 0:
         return chi_bin
 
-    # Number of points to set to 1: β * S
+    # --- Original Binary Projection Logic ---
     nb_ones = int(round(beta_target * S))
     nb_ones = max(0, min(nb_ones, S))
-
-    # Indices of largest values
-    order = numpy.argsort(vals)[::-1]  # descending
+    order = numpy.argsort(vals_relaxed)[::-1]  # descending
     sel = order[:nb_ones]
-
     chi_bin[idx_i[sel], idx_j[sel]] = 1.0
+    
+    # --- START: New Plotting Code ---
+    
+    # 1. Get the new binary values from the same boundary points
+    vals_bin = chi_bin[idx_i, idx_j]
+
+    # 2. Sort all data by position (j-index) for a clean 1D plot
+    # This ensures the x-axis represents the position along the boundary
+    sort_indices = numpy.argsort(idx_j)
+    
+    x_position = idx_j[sort_indices]
+    y_relaxed = vals_relaxed[sort_indices]
+    y_binary = vals_bin[sort_indices]
+
+    # 3. Create the plot
+    plt.figure(figsize=(15, 7))
+    plt.title(f"Binary Projection (Target β = {beta_target:.2%})")
+    
+    # Plot the "fuzzy" relaxed values
+    plt.plot(x_position, y_relaxed, 'b-', label='Relaxed χ (Input)', alpha=0.7)
+    
+    # Plot the final binary values as 'step' or 'markers' for clarity
+    # Using 'ro' (red 'o' markers) shows the discrete 0/1 nature
+    plt.plot(x_position, y_binary, 'ro', label='Binary χ (Output)', markersize=3)
+    
+    plt.xlabel("Position on Boundary (j-index)")
+    plt.ylabel("χ Value (Material Density)")
+    plt.ylim(-0.1, 1.1) # Give padding to 0 and 1
+    plt.legend()
+    plt.grid(True, which='both', linestyle='--', linewidth=0.5)
+    plt.tight_layout()
+    
+    # 4. Show the plot during execution
+    plt.show()
+
+    # --- END: New Plotting Code ---
 
     return chi_bin
 
@@ -195,7 +231,7 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
     print(f"Initial β = {numpy.mean(chi[mask_R]):.4f} (target: {V_obj:.4f})")
 
     zeta = zeta0
-    rel_tol = 1e-8  # Relative tolerance for energy improvement
+    rel_tol = 1e-6  # Relative tolerance for energy improvement
 
     for n in range(numb_iter):
         print(f"\n{'='*60}")
@@ -376,7 +412,7 @@ if __name__ == '__main__':
     # -------------------
     V_obj = 0.4  # Target volume fraction β = 40%
     V_0 = V_obj * S  # Target total volume
-    zeta0 = 0.3  # Initial step size (TUNE THIS)
+    zeta0 = 0.7  # Initial step size (TUNE THIS)
     mu1 = 1e-9  # Volume penalty (TUNE THIS)
     max_iter = 200  # Maximum iterations
     delta = 1e-4  # Convergence tolerance
