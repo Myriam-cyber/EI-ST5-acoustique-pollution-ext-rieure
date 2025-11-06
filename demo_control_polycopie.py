@@ -405,9 +405,17 @@ if __name__ == '__main__':
     alpha_rob[:, :] = -omega * 1j
 
     # =================================================================
+     # TUNABLE PARAMETERS:
+    # -------------------
+    V_obj = 0.4  # Target volume fraction β = 40%
+    V_0 = V_obj * S  # Target total volume
+    zeta0 = 0.7  # Initial step size (TUNE THIS)
+    mu1 = 1e-10  # Volume penalty (TUNE THIS)
+    max_iter = 100  # Maximum iterations
+    delta = 5e-5  # Convergence tolerance
     # INITIAL DENSITY χ ON FRACTAL
     # =================================================================
-    chi = preprocessing._set_chi(M, N, x, y)
+    chi = preprocessing._set_chi(M, N, x, y, V_obj)
     chi = preprocessing.set2zero(chi, domain_omega)
 
     # =================================================================
@@ -423,15 +431,6 @@ if __name__ == '__main__':
     # =================================================================
     mask_R = (domain_omega == _env.NODE_ROBIN)
     S = numpy.sum(mask_R)
-    
-    # TUNABLE PARAMETERS:
-    # -------------------
-    V_obj = 0.4  # Target volume fraction β = 40%
-    V_0 = V_obj * S  # Target total volume
-    zeta0 = 0.7  # Initial step size (TUNE THIS)
-    mu1 = 1e-10  # Volume penalty (TUNE THIS)
-    max_iter = 100  # Maximum iterations
-    delta = 5e-5  # Convergence tolerance
     
     print(f"\nOptimization parameters:")
     print(f"  Target β = {V_obj:.2%}")
@@ -527,5 +526,6 @@ if __name__ == '__main__':
     print(f"Final β (relaxed):    {numpy.mean(chi_relaxed[mask_R]):.4f}")
     print(f"Final β (binary):     {beta_bin:.4f}")
     print(f"Target β:             {V_obj:.4f}")
+
 
     print('\nDone.')
