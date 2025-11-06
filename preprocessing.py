@@ -100,10 +100,10 @@ def _set_geometry_of_domain(M, N, level=0):
     return domain_omega, x, y, x_plot, y_plot
 
 
-def _set_chi(M, N, x, y):
+def _set_chi(M, N, x, y, V_obj):
     chi = numpy.zeros((M, N), dtype=numpy.float64)
-    k_begin = (len(x) - 1) // 5
-    k_end = 3 * (len(x) - 1) // 5
+    k_begin = 0
+    k_end = int((len(x) - 1)*V_obj)
     val = 1.0
     for k in range(k_begin, k_end):
         chi[int(y[k]), int(x[k])] = val
@@ -415,4 +415,5 @@ def surlignefractale(domain, color_domain, color_seed):
                     domain[i, j] = color_seed
 
     return domain
+
 
