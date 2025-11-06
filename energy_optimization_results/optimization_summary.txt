@@ -1,0 +1,43 @@
+======================================================================
+ENERGY vs FREQUENCY OPTIMIZATION ANALYSIS SUMMARY
+======================================================================
+
+Parameters:
+  Grid size: 100×50
+  Space step: 0.0200
+  Frequency range: [100.0, 700.0] Hz
+  Number of frequencies: 200
+  Target β: 40.0%
+  Initial step size ζ₀: 0.7
+  Penalty μ₁: 1.00e-10
+  Max iterations: 100
+  Convergence tolerance δ: 5.00e-05
+
+----------------------------------------------------------------------
+Results by Wall Configuration:
+----------------------------------------------------------------------
+
+
+Flat Wall:
+  Computation time: 514.6 seconds
+  Mean energy (initial):  7.398724e-02
+  Mean energy (relaxed):  6.491133e-02
+  Mean energy (binary):   1.672288e-01
+  Improvement (relaxed):  12.27%
+  Improvement (binary):   -126.02%
+
+Fractal Level 1:
+  Computation time: 729.4 seconds
+  Mean energy (initial):  2.954191e-02
+  Mean energy (relaxed):  2.297357e-02
+  Mean energy (binary):   4.453504e-02
+  Improvement (relaxed):  22.23%
+  Improvement (binary):   -50.75%
+
+Fractal Level 2:
+  Computation time: 567.2 seconds
+  Mean energy (initial):  2.829516e-02
+  Mean energy (relaxed):  2.390086e-02
+  Mean energy (binary):   3.673555e-02
+  Improvement (relaxed):  15.53%
+  Improvement (binary):   -29.83%

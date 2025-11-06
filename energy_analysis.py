@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Energy Analysis for Fully Absorbent Walls (BETON)
-Frequency range automatically taken from dta_freq_BETON.mtx
+Energy Analysis for Fully Absorbent Walls (MELAMINE)
+Frequency range automatically taken from dta_freq_MELAMINE.mtx
 """
 
 import matplotlib.pyplot as plt
@@ -122,6 +122,39 @@ def create_fractal_boundary(M, N, level, spacestep):
         shape_name = f"Fractal_Level_{level}"
     return domain_omega, x, y, shape_name
 
+# =====================================================================
+#  SOURCES : bruit d'autoroute en haut du domaine
+# =====================================================================
+def build_road_source(f, f_dir, f_neu, f_rob, amplitude=2.0, n_sources=6):
+    """
+    Modélisation du bruit d'autoroute sur le bord supérieur (Dirichlet).
+
+    - n_sources 'voitures' réparties horizontalement,
+    - pondération gaussienne pour densité plus forte au centre.
+    """
+    f[:, :] = 0.0
+    f_neu[:, :] = 0.0
+    f_rob[:, :] = 0.0
+    f_dir[:, :] = 0.0
+
+    M, N = f_dir.shape
+    i_source = 0  # ligne du haut
+    spacing = N // (n_sources + 1)
+
+    # Sources ponctuelles
+    for n in range(n_sources):
+        j_src = (n + 1) * spacing
+        if j_src < N:
+            f_dir[i_source, j_src] = amplitude * (1.0 + 0.0j)
+
+    # Gaussienne pour densité plus forte au centre
+    for j in range(N):
+        dist_center = abs(j - N // 2)
+        f_dir[i_source, j] *= np.exp(-(dist_center / (N / 3)) ** 2)
+
+    return f, f_dir, f_neu, f_rob
+
+
 
 # ============================================================
 # MAIN SCRIPT
@@ -146,7 +179,7 @@ if __name__ == '__main__':
     # --- Frequency range (auto or fixed)
     freq_min = max(100.0, freq_tab_alpha[0])
     freq_max = min(1000.0, freq_tab_alpha[-1])
-    n_frequencies = 1000
+    n_frequencies = 700
     frequencies = np.linspace(freq_min, freq_max, n_frequencies)
 
     # --- PDE setup
@@ -154,14 +187,9 @@ if __name__ == '__main__':
         preprocessing._set_coefficients_of_pde(M, N)
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
 
-    # --- Plane wave incidence (from top)
-    f_dir[:, :] = 0.0
-    theta_deg = 0.0
-    theta = np.deg2rad(theta_deg)
-    x_coords = np.arange(N) * spacestep
-    k_ref = 2.0 * np.pi * 250.0 / 343.0
-    phase_x = np.exp(1j * k_ref * np.sin(theta) * x_coords)
-    f_dir[0, 0:N] = phase_x
+    # Sources (autoroute en haut)
+    f, f_dir, f_neu, f_rob = build_road_source(f, f_dir, f_neu, f_rob,
+                                               amplitude=2.0, n_sources=6)
 
     wall_shapes = [
         {'level': 0, 'name': 'Flat Wall'},
@@ -202,22 +230,25 @@ if __name__ == '__main__':
             'maxima_energies': maxima_energies,
             'wall_name': wall_name
         }
+        
+        
+        marker_every = max(1, len(frequencies) // 15)
+        markers = ['s', 'd', 'p', 'o', '^', 'v']
 
         # --- Plot for this shape ---
         plt.figure(figsize=(10, 6))
-        plt.plot(frequencies, energies, linewidth=2.5, color='darkblue', label='Energy')
-        if len(maxima_freqs) > 0:
-            plt.plot(maxima_freqs, maxima_energies, 'ro', markersize=8, label='Local maxima')
-            for freq, energy in zip(maxima_freqs, maxima_energies):
-                plt.annotate(f'{freq:.0f} Hz', xy=(freq, energy),
-                             xytext=(10, 10), textcoords='offset points',
-                             fontsize=9, color='red',
-                             bbox=dict(boxstyle='round,pad=0.3',
-                                       facecolor='yellow', alpha=0.7))
+        plt.plot(frequencies, energies, 
+         linewidth=2.5, 
+         color='darkblue', 
+         label='Energy',
+         marker=markers[0],
+         markevery=marker_every,
+         markersize=5)
+
         plt.xlabel('Frequency (Hz)', fontsize=12)
         plt.ylabel('Acoustic Energy', fontsize=12)
         plt.title(f'Energy vs Frequency - {wall_name}\n(Fully Absorbent, α=α(f))',
-                  fontsize=13, fontweight='bold')
+                fontsize=13, fontweight='bold')
         plt.grid(True, alpha=0.3)
         plt.legend(fontsize=10)
         plt.tight_layout()
@@ -229,13 +260,24 @@ if __name__ == '__main__':
     # --- Global plot with all shapes ---
     plt.figure(figsize=(12, 8))
     colors = ['blue', 'red', 'green']
+    markers = ['s', 'd', 'p']
+    marker_every_global = max(1, len(frequencies) // 15)
+
     for idx, (shape_name, results) in enumerate(all_results.items()):
         color = colors[idx % len(colors)]
+        marker = markers[idx % len(markers)]
         plt.plot(results['frequencies'], results['energies'],
-                 label=results['wall_name'], linewidth=2, color=color)
+                label=results['wall_name'],
+                linewidth=2, 
+                color=color,
+                marker=marker,
+                markevery=marker_every_global,
+                markersize=5)
+
     plt.xlabel('Frequency (Hz)', fontsize=12)
     plt.ylabel('Acoustic Energy', fontsize=12)
-    plt.title('Acoustic Energy vs Frequency - All Fractal Levels (Absorbent)', fontsize=14, fontweight='bold')
+    plt.title('Acoustic Energy vs Frequency - All Fractal Levels (Absorbent)', 
+            fontsize=14, fontweight='bold')
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()

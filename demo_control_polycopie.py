@@ -336,6 +336,36 @@ def your_optimization_procedure(domain_omega, spacestep, omega, f, f_dir, f_neu,
     
     return chi, energy, u, grad
 
+# source
+def build_road_source(f, f_dir, f_neu, f_rob, amplitude=2.0, n_sources=6):
+    """
+    Modélisation du bruit d'autoroute sur le bord supérieur (Dirichlet).
+
+    - n_sources 'voitures' réparties horizontalement,
+    - pondération gaussienne pour densité plus forte au centre.
+    """
+    f[:, :] = 0.0
+    f_neu[:, :] = 0.0
+    f_rob[:, :] = 0.0
+    f_dir[:, :] = 0.0
+
+    M, N = f_dir.shape
+    i_source = 0  # ligne du haut
+    spacing = N // (n_sources + 1)
+
+    # Sources ponctuelles
+    for n in range(n_sources):
+        j_src = (n + 1) * spacing
+        if j_src < N:
+            f_dir[i_source, j_src] = amplitude * (1.0 + 0.0j)
+
+    # Gaussienne pour densité plus forte au centre
+    for j in range(N):
+        dist_center = abs(j - N // 2)
+        f_dir[i_source, j] *= numpy.exp(-(dist_center / (N / 3)) ** 2)
+
+    return f, f_dir, f_neu, f_rob
+
 
 if __name__ == '__main__':
 
@@ -351,7 +381,7 @@ if __name__ == '__main__':
     # PHYSICS: 125 Hz, c = 343 m/s
     # =================================================================
     c = 343.0  # Speed of sound [m/s]
-    f = 180.0  # Frequency [Hz]
+    f = 220.0  # Frequency [Hz]
     k_phys = 2*numpy.pi*f/c
     L_ref = 1.0  # Reference length [m]
     k = k_phys * L_ref
@@ -366,23 +396,9 @@ if __name__ == '__main__':
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
     domain_omega, x, y, _, _ = preprocessing._set_geometry_of_domain(M, N, level)
 
-    # =================================================================
-    # SOURCE: Plane wave from top (highway noise)
-    # =================================================================
-    # Centered Gaussian source at top boundary
-    f_dir[:, :] = 0.0
-    f[:, :] = 0.0
-    x_source = 0.5
-    y_source = 0.25  # 1/4 from top
-    i_source = int(y_source / spacestep)
-    j_source = int(x_source / spacestep)
-        
-        # Add delta function source: -Δu - k²u = f
-        # For point source: f = δ(x - x_source)
-    f[i_source, j_source] = 1.0 / (spacestep**2)
-    
-    print(f"Source: point at x = {x_source} with y = {y_source}")
-
+    # Sources (autoroute en haut)
+    f, f_dir, f_neu, f_rob = build_road_source(f, f_dir, f_neu, f_rob,
+                                               amplitude=2.0, n_sources=6)
     # =================================================================
     # INITIAL ROBIN CONDITION: "Bare wall"
     # =================================================================
@@ -399,7 +415,7 @@ if __name__ == '__main__':
     # =================================================================
     # For ISOREL at 125 Hz (from Chapter 3 / Figure 3.10)
     # These are example values - adjust based on your material
-    Alpha = 6.311111794566079 - 6.67835254158675*1j
+    Alpha = 8.950829344347426 - 1.0129061485319578E1*1j     
     alpha_rob = Alpha * chi
 
     # =================================================================
@@ -413,9 +429,9 @@ if __name__ == '__main__':
     V_obj = 0.4  # Target volume fraction β = 40%
     V_0 = V_obj * S  # Target total volume
     zeta0 = 0.7  # Initial step size (TUNE THIS)
-    mu1 = 1e-9  # Volume penalty (TUNE THIS)
-    max_iter = 200  # Maximum iterations
-    delta = 1e-4  # Convergence tolerance
+    mu1 = 1e-10  # Volume penalty (TUNE THIS)
+    max_iter = 100  # Maximum iterations
+    delta = 5e-5  # Convergence tolerance
     
     print(f"\nOptimization parameters:")
     print(f"  Target β = {V_obj:.2%}")

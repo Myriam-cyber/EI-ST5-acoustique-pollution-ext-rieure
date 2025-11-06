@@ -1,25 +1,20 @@
-# -*- coding: utf-8 -*-
 """
 Energy Analysis with Optimization for Frequency-Dependent Absorption
 =====================================================================
 
 This script performs energy vs frequency analysis comparing:
-1. Fully absorbent wall (χ = 1 everywhere on Robin boundary)
+1. Initial uniform distribution (χ = β everywhere, before optimization)
 2. Optimized relaxed solution (0 ≤ χ ≤ 1)
 3. Optimized binary solution (χ ∈ {0,1})
 
-For each frequency:
-- Compute α(f) from material data
-- Solve with fully absorbent wall
-f- Optimize χ (relaxed solution)
-- Project to binary solution
-- Compute energy for all three cases
+Results are saved to avoid recomputation.
 """
 
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import time
+import pickle
 from scipy.io import mmread
 
 # MRG packages
@@ -308,6 +303,34 @@ def create_fractal_boundary(M, N, level, spacestep):
 
 
 # ============================================================
+# Cache Management
+# ============================================================
+
+def get_cache_filename(output_dir, level, freq_min, freq_max, n_freq, V_obj):
+    """Generate cache filename based on parameters."""
+    cache_file = os.path.join(output_dir, 
+                             f'cache_level_{level}_f{freq_min:.0f}-{freq_max:.0f}_n{n_freq}_beta{V_obj:.2f}.pkl')
+    return cache_file
+
+
+def save_results_to_cache(cache_file, data):
+    """Save results to cache file."""
+    with open(cache_file, 'wb') as f:
+        pickle.dump(data, f)
+    print(f"  → Results saved to cache: {os.path.basename(cache_file)}")
+
+
+def load_results_from_cache(cache_file):
+    """Load results from cache file if it exists."""
+    if os.path.exists(cache_file):
+        with open(cache_file, 'rb') as f:
+            data = pickle.load(f)
+        print(f"  ✓ Loaded from cache: {os.path.basename(cache_file)}")
+        return data
+    return None
+
+
+# ============================================================
 # MAIN COMPUTATION
 # ============================================================
 
@@ -317,17 +340,30 @@ def compute_energy_all_cases(domain_omega, spacestep, frequencies,
                              beta_neu, beta_rob,
                              freq_tab_alpha, alpha_tab_alpha,
                              V_obj, zeta0, mu1, max_iter, delta,
-                             wall_name="wall", verbose=True):
+                             cache_file=None, wall_name="wall", verbose=True):
     """
     Compute energy vs frequency for THREE cases:
-    1. Fully absorbent wall (χ = 1 everywhere)
+    1. Initial uniform χ = β (before optimization)
     2. Optimized relaxed solution
     3. Optimized binary solution
+    
+    Uses cache to avoid recomputation.
     """
+    # Check cache first
+    if cache_file and os.path.exists(cache_file):
+        cached_data = load_results_from_cache(cache_file)
+        if cached_data is not None:
+            # Verify cache matches current parameters
+            if (np.allclose(cached_data['frequencies'], frequencies) and
+                cached_data['V_obj'] == V_obj):
+                return (cached_data['energies_initial'], 
+                       cached_data['energies_relaxed'], 
+                       cached_data['energies_binary'])
+    
     c = 343.0
     L_ref = 1.0
     
-    energies_absorbent = np.zeros(len(frequencies), dtype=np.float64)
+    energies_initial = np.zeros(len(frequencies), dtype=np.float64)
     energies_relaxed = np.zeros(len(frequencies), dtype=np.float64)
     energies_binary = np.zeros(len(frequencies), dtype=np.float64)
     
@@ -343,12 +379,12 @@ def compute_energy_all_cases(domain_omega, spacestep, frequencies,
         print(f"Computing energy for {wall_name}")
         print(f"Frequency range: [{frequencies[0]:.1f}, {frequencies[-1]:.1f}] Hz")
         print(f"Number of frequency points: {len(frequencies)}")
-        print(f"Target volume fraction for optimization: β = {V_obj:.2%}")
+        print(f"Target volume fraction: β = {V_obj:.2%}")
         print(f"{'='*70}\n")
 
     for idx, freq in enumerate(frequencies):
-        if verbose:
-            print(f"\n--- Frequency {idx+1}/{len(frequencies)}: f = {freq:.1f} Hz ---")
+        if verbose and (idx % 10 == 0 or idx == 0 or idx == len(frequencies) - 1):
+            print(f"Progress: {idx+1}/{len(frequencies)} (f = {freq:.1f} Hz)")
         
         # 1. Compute α(f) for this frequency
         Alpha_f = alpha_of_freq(freq, freq_tab_alpha, alpha_tab_alpha)
@@ -358,28 +394,29 @@ def compute_energy_all_cases(domain_omega, spacestep, frequencies,
         omega = k_phys * L_ref
         
         # ========================================================
-        # CASE 1: FULLY ABSORBENT WALL (χ = 1 everywhere)
+        # CASE 1: INITIAL χ (uniform distribution = β)
         # ========================================================
-        chi_absorbent = np.ones((M, N), dtype=np.float64)
-        chi_absorbent = preprocessing.set2zero(chi_absorbent, domain_omega)
-        alpha_rob_absorbent = Alpha_f * chi_absorbent
+        chi_init = np.ones((M, N), dtype=np.float64) * V_obj
+        chi_init = preprocessing.set2zero(chi_init, domain_omega)
         
-        u_absorbent = processing.solve_helmholtz(
+        
+        
+        alpha_rob_init = Alpha_f * chi_init
+        
+        u_init = processing.solve_helmholtz(
             domain_omega, spacestep, omega,
             f, f_dir, f_neu, f_rob,
             beta_pde, alpha_pde, alpha_dir,
-            beta_neu, beta_rob, alpha_rob_absorbent
+            beta_neu, beta_rob, alpha_rob_init
         )
         
-        E_absorbent = np.sum(np.abs(u_absorbent[mask_dom])**2) * (spacestep**2)
-        energies_absorbent[idx] = float(np.real(E_absorbent))
+        E_init = np.sum(np.abs(u_init[mask_dom])**2) * (spacestep**2)
+        energies_initial[idx] = float(np.real(E_init))
         
         # ========================================================
         # CASE 2 & 3: OPTIMIZED SOLUTIONS
         # ========================================================
-        # Initialize χ for optimization (uniform distribution)
-        chi_init = np.ones((M, N), dtype=np.float64) * V_obj
-        chi_init = preprocessing.set2zero(chi_init, domain_omega)
+        # Use same initial χ for optimization
         alpha_rob = Alpha_f * chi_init
         
         # Optimize
@@ -411,23 +448,28 @@ def compute_energy_all_cases(domain_omega, spacestep, frequencies,
         E_binary = np.sum(np.abs(u_binary[mask_dom])**2) * (spacestep**2)
         energies_binary[idx] = float(np.real(E_binary))
         
-        if verbose and ((idx + 1) % 5 == 0 or idx == 0 or idx == len(frequencies) - 1):
+        if verbose and (idx % 20 == 0 or idx == len(frequencies) - 1):
             beta_rel = np.mean(chi_relaxed[mask_R])
             beta_bin = np.mean(chi_binary[mask_R])
-            print(f"  α(f) = {Alpha_f.real:.3e} + {Alpha_f.imag:.3e}j")
-            print(f"  E_absorbent = {E_absorbent:.6e} (χ=1)")
-            print(f"  E_relaxed   = {E_relaxed:.6e} (β={beta_rel:.4f})")
-            print(f"  E_binary    = {E_binary:.6e} (β={beta_bin:.4f})")
+            print(f"  f={freq:.1f}Hz: E_init={E_init:.4e}, E_rel={E_relaxed:.4e}, E_bin={E_binary:.4e}")
 
-    return energies_absorbent, energies_relaxed, energies_binary
+    # Save to cache
+    if cache_file:
+        cache_data = {
+            'frequencies': frequencies,
+            'V_obj': V_obj,
+            'energies_initial': energies_initial,
+            'energies_relaxed': energies_relaxed,
+            'energies_binary': energies_binary
+        }
+        save_results_to_cache(cache_file, cache_data)
+
+    return energies_initial, energies_relaxed, energies_binary
 
 
 def build_road_source(f, f_dir, f_neu, f_rob, amplitude=2.0, n_sources=6):
     """
     Modélisation du bruit d'autoroute sur le bord supérieur (Dirichlet).
-
-    - n_sources 'voitures' réparties horizontalement,
-    - pondération gaussienne pour densité plus forte au centre.
     """
     f[:, :] = 0.0
     f_neu[:, :] = 0.0
@@ -450,6 +492,8 @@ def build_road_source(f, f_dir, f_neu, f_rob, amplitude=2.0, n_sources=6):
         f_dir[i_source, j] *= np.exp(-(dist_center / (N / 3)) ** 2)
 
     return f, f_dir, f_neu, f_rob
+
+
 # ============================================================
 # MAIN SCRIPT
 # ============================================================
@@ -458,10 +502,12 @@ if __name__ == '__main__':
     
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║  ENERGY vs FREQUENCY ANALYSIS: COMPARISON OF THREE CASES         ║
-    ║  1. Fully Absorbent Wall (χ=1)                                   ║
+    ║  ENERGY vs FREQUENCY ANALYSIS: OPTIMIZATION COMPARISON           ║
+    ║  1. Initial Uniform χ = β (before optimization)                  ║
     ║  2. Optimized Relaxed Solution (0≤χ≤1)                           ║
     ║  3. Optimized Binary Solution (χ∈{0,1})                          ║
+    ║                                                                    ║
+    ║  Results are cached to avoid recomputation                       ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
     
@@ -486,7 +532,7 @@ if __name__ == '__main__':
     # Frequency range for analysis
     freq_min = max(100.0, freq_tab_alpha[0])
     freq_max = min(700.0, freq_tab_alpha[-1])
-    n_frequencies = 200  # Reduced for faster computation
+    n_frequencies = 200
     frequencies = np.linspace(freq_min, freq_max, n_frequencies)
     
     print(f"\nAnalysis parameters:")
@@ -515,15 +561,9 @@ if __name__ == '__main__':
         preprocessing._set_coefficients_of_pde(M, N)
     f, f_dir, f_neu, f_rob = preprocessing._set_rhs_of_pde(M, N)
     
-    #source
-    # =====================================================================
-    #  SOURCES : bruit d'autoroute en haut du domaine
-    # ===============================
-
     # Sources (autoroute en haut)
     f, f_dir, f_neu, f_rob = build_road_source(f, f_dir, f_neu, f_rob,
                                                 amplitude=2.0, n_sources=6)
-
     
     # ============================================================
     # WALL CONFIGURATIONS
@@ -552,14 +592,19 @@ if __name__ == '__main__':
         # Create geometry
         domain_omega, x, y, shape_name = create_fractal_boundary(M, N, level, spacestep)
         
-        # Compute all three cases
-        energies_absorbent, energies_relaxed, energies_binary = compute_energy_all_cases(
+        # Get cache filename
+        cache_file = get_cache_filename(output_dir, level, freq_min, freq_max, 
+                                       n_frequencies, V_obj)
+        
+        # Compute all three cases (with caching)
+        energies_initial, energies_relaxed, energies_binary = compute_energy_all_cases(
             domain_omega, spacestep, frequencies,
             f, f_dir, f_neu, f_rob,
             beta_pde, alpha_pde, alpha_dir,
             beta_neu, beta_rob,
             freq_tab_alpha, alpha_tab_alpha,
             V_obj, zeta0, mu1, max_iter, delta,
+            cache_file=cache_file,
             wall_name=wall_name, verbose=True
         )
         
@@ -567,7 +612,7 @@ if __name__ == '__main__':
         
         all_results[shape_name] = {
             'frequencies': frequencies,
-            'energies_absorbent': energies_absorbent,
+            'energies_initial': energies_initial,
             'energies_relaxed': energies_relaxed,
             'energies_binary': energies_binary,
             'wall_name': wall_name,
@@ -575,26 +620,32 @@ if __name__ == '__main__':
         }
         
         print(f"\n✓ {wall_name} completed in {elapsed:.1f} seconds")
-        print(f"  Mean E_absorbent: {np.mean(energies_absorbent):.6e}")
-        print(f"  Mean E_relaxed:   {np.mean(energies_relaxed):.6e}")
-        print(f"  Mean E_binary:    {np.mean(energies_binary):.6e}")
+        print(f"  Mean E_initial: {np.mean(energies_initial):.6e}")
+        print(f"  Mean E_relaxed: {np.mean(energies_relaxed):.6e}")
+        print(f"  Mean E_binary:  {np.mean(energies_binary):.6e}")
         
         # ============================================================
-        # PLOT FOR THIS SHAPE (3 curves)
+        # PLOT FOR THIS SHAPE (3 curves with markers)
         # ============================================================
         plt.figure(figsize=(14, 8))
         
-        plt.plot(frequencies, energies_absorbent, linewidth=2.5, 
-                color='black', label='Fully Absorbent (χ=1)', alpha=0.8, linestyle='-')
-        plt.plot(frequencies, energies_relaxed, linewidth=2.5, 
-                color='blue', label=f'Optimized Relaxed (β={V_obj:.1%})', alpha=0.8, linestyle='-')
-        plt.plot(frequencies, energies_binary, linewidth=2.5, 
-                color='red', label=f'Optimized Binary (β={V_obj:.1%})', alpha=0.8, linestyle='--')
+        # Subsample for markers (to avoid overcrowding)
+        marker_every = max(1, len(frequencies) // 20)
+        
+        plt.plot(frequencies, energies_initial, linewidth=2, 
+                color='green', label=f'Initial χ=β={V_obj:.1%} (uniform)', 
+                alpha=0.8, marker='s', markevery=marker_every, markersize=5)
+        plt.plot(frequencies, energies_relaxed, linewidth=2, 
+                color='blue', label=f'Optimized Relaxed (β={V_obj:.1%})', 
+                alpha=0.8, marker='o', markevery=marker_every, markersize=5)
+        plt.plot(frequencies, energies_binary, linewidth=2, 
+                color='red', label=f'Optimized Binary (β={V_obj:.1%})', 
+                alpha=0.8, marker='^', markevery=marker_every, markersize=5, linestyle='--')
         
         plt.xlabel('Frequency (Hz)', fontsize=13)
         plt.ylabel('Acoustic Energy', fontsize=13)
         plt.title(f'Energy vs Frequency - {wall_name}\n' + 
-                 f'Comparison: Fully Absorbent vs Optimized Solutions',
+                 f'Comparison: Before vs After Optimization',
                   fontsize=14, fontweight='bold')
         plt.grid(True, alpha=0.3)
         plt.legend(fontsize=11, loc='best')
@@ -609,36 +660,44 @@ if __name__ == '__main__':
     # GLOBAL COMPARISON PLOTS
     # ============================================================
     
-    # Plot 1: All absorbent solutions
+    marker_every_global = max(1, len(frequencies) // 15)
+    
+    # Plot 1: All initial solutions
     plt.figure(figsize=(14, 7))
-    colors_abs = ['black', 'gray', 'darkgray']
+    colors_init = ['green', 'lime', 'darkgreen']
+    markers_init = ['s', 'd', 'p']
     for idx, (shape_name, results) in enumerate(all_results.items()):
-        color = colors_abs[idx % len(colors_abs)]
-        plt.plot(results['frequencies'], results['energies_absorbent'],
-                 label=f"{results['wall_name']} (Absorbent)", 
-                 linewidth=2, color=color, alpha=0.7)
+        color = colors_init[idx % len(colors_init)]
+        marker = markers_init[idx % len(markers_init)]
+        plt.plot(results['frequencies'], results['energies_initial'],
+                 label=f"{results['wall_name']} (Initial)", 
+                 linewidth=2, color=color, alpha=0.7,
+                 marker=marker, markevery=marker_every_global, markersize=5)
     plt.xlabel('Frequency (Hz)', fontsize=12)
     plt.ylabel('Acoustic Energy', fontsize=12)
-    plt.title('Energy vs Frequency - All Levels (Fully Absorbent χ=1)', 
+    plt.title(f'Energy vs Frequency - All Levels (Initial χ=β={V_obj:.1%}, Uniform)', 
               fontsize=14, fontweight='bold')
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'energy_all_absorbent.png'), dpi=300)
+    plt.savefig(os.path.join(output_dir, 'energy_all_initial.png'), dpi=300)
     plt.close()
-    print("\nSaved: energy_all_absorbent.png")
+    print("\nSaved: energy_all_initial.png")
     
     # Plot 2: All relaxed solutions
     plt.figure(figsize=(14, 7))
-    colors_rel = ['blue', 'green', 'purple']
+    colors_rel = ['blue', 'cyan', 'navy']
+    markers_rel = ['o', 'v', 'D']
     for idx, (shape_name, results) in enumerate(all_results.items()):
         color = colors_rel[idx % len(colors_rel)]
+        marker = markers_rel[idx % len(markers_rel)]
         plt.plot(results['frequencies'], results['energies_relaxed'],
                  label=f"{results['wall_name']} (Relaxed)", 
-                 linewidth=2, color=color, alpha=0.8)
+                 linewidth=2, color=color, alpha=0.7,
+                 marker=marker, markevery=marker_every_global, markersize=5)
     plt.xlabel('Frequency (Hz)', fontsize=12)
     plt.ylabel('Acoustic Energy', fontsize=12)
-    plt.title(f'Energy vs Frequency - All Levels (Relaxed χ, β={V_obj:.1%})', 
+    plt.title(f'Energy vs Frequency - All Levels (Optimized Relaxed, β={V_obj:.1%})', 
               fontsize=14, fontweight='bold')
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
@@ -649,15 +708,18 @@ if __name__ == '__main__':
     
     # Plot 3: All binary solutions
     plt.figure(figsize=(14, 7))
-    colors_bin = ['red', 'orange', 'brown']
+    colors_bin = ['red', 'orange', 'darkred']
+    markers_bin = ['^', 'P', 'X']
     for idx, (shape_name, results) in enumerate(all_results.items()):
         color = colors_bin[idx % len(colors_bin)]
+        marker = markers_bin[idx % len(markers_bin)]
         plt.plot(results['frequencies'], results['energies_binary'],
                  label=f"{results['wall_name']} (Binary)", 
-                 linewidth=2, color=color, alpha=0.8, linestyle='--')
+                 linewidth=2, color=color, alpha=0.7, linestyle='--',
+                 marker=marker, markevery=marker_every_global, markersize=5)
     plt.xlabel('Frequency (Hz)', fontsize=12)
     plt.ylabel('Acoustic Energy', fontsize=12)
-    plt.title(f'Energy vs Frequency - All Levels (Binary χ, β={V_obj:.1%})', 
+    plt.title(f'Energy vs Frequency - All Levels (Optimized Binary, β={V_obj:.1%})', 
               fontsize=14, fontweight='bold')
     plt.legend(fontsize=10)
     plt.grid(True, alpha=0.3)
@@ -666,25 +728,56 @@ if __name__ == '__main__':
     plt.close()
     print("Saved: energy_all_binary.png")
     
-    # Plot 4: Combined comparison (one level at a time, all three curves)
-    fig, axes = plt.subplots(1, 3, figsize=(20, 6))
-    
-    for idx, (shape_name, results) in enumerate(all_results.items()):
-        ax = axes[idx]
-        ax.plot(results['frequencies'], results['energies_absorbent'],
-               linewidth=2.5, color='black', label='Absorbent (χ=1)', alpha=0.8)
-        ax.plot(results['frequencies'], results['energies_relaxed'],
-               linewidth=2.5, color='blue', label=f'Relaxed (β={V_obj:.1%})', alpha=0.8)
-        ax.plot(results['frequencies'], results['energies_binary'],
-               linewidth=2.5, color='red', label=f'Binary (β={V_obj:.1%})', alpha=0.8, linestyle='--')
+    # ============================================================
+    # SUMMARY REPORT
+    # ============================================================
+    summary_file = os.path.join(output_dir, 'optimization_summary.txt')
+    with open(summary_file, 'w') as f:
+        f.write("="*70 + "\n")
+        f.write("ENERGY vs FREQUENCY OPTIMIZATION ANALYSIS SUMMARY\n")
+        f.write("="*70 + "\n\n")
         
-        ax.set_xlabel('Frequency (Hz)', fontsize=11)
-        ax.set_ylabel('Acoustic Energy', fontsize=11)
-        ax.set_title(results['wall_name'], fontsize=12, fontweight='bold')
-        ax.legend(fontsize=9, loc='best')
-        ax.grid(True, alpha=0.3)
+        f.write(f"Parameters:\n")
+        f.write(f"  Grid size: {M}×{N}\n")
+        f.write(f"  Space step: {spacestep:.4f}\n")
+        f.write(f"  Frequency range: [{freq_min:.1f}, {freq_max:.1f}] Hz\n")
+        f.write(f"  Number of frequencies: {n_frequencies}\n")
+        f.write(f"  Target β: {V_obj:.1%}\n")
+        f.write(f"  Initial step size ζ₀: {zeta0}\n")
+        f.write(f"  Penalty μ₁: {mu1:.2e}\n")
+        f.write(f"  Max iterations: {max_iter}\n")
+        f.write(f"  Convergence tolerance δ: {delta:.2e}\n\n")
+        
+        f.write("-"*70 + "\n")
+        f.write("Results by Wall Configuration:\n")
+        f.write("-"*70 + "\n\n")
+        
+        for shape_name, results in all_results.items():
+            f.write(f"\n{results['wall_name']}:\n")
+            f.write(f"  Computation time: {results['computation_time']:.1f} seconds\n")
+            f.write(f"  Mean energy (initial):  {np.mean(results['energies_initial']):.6e}\n")
+            f.write(f"  Mean energy (relaxed):  {np.mean(results['energies_relaxed']):.6e}\n")
+            f.write(f"  Mean energy (binary):   {np.mean(results['energies_binary']):.6e}\n")
+            
+            # Improvement percentages
+            improve_rel = 100 * (np.mean(results['energies_initial']) - 
+                                np.mean(results['energies_relaxed'])) / np.mean(results['energies_initial'])
+            improve_bin = 100 * (np.mean(results['energies_initial']) - 
+                                np.mean(results['energies_binary'])) / np.mean(results['energies_initial'])
+            
+            f.write(f"  Improvement (relaxed):  {improve_rel:.2f}%\n")
+            f.write(f"  Improvement (binary):   {improve_bin:.2f}%\n")
     
-    plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'energy_comparison_all_levels.png'), dpi=300)
-    plt.close()
-    print("Saved: energy_comparison_all_levels.png")
+    print(f"\n✓ Summary saved to: {summary_file}")
+    
+    print("\n" + "="*70)
+    print("ANALYSIS COMPLETE")
+    print("="*70)
+    print(f"All results saved to: {output_dir}/")
+    print("\nGenerated files:")
+    print("  - Individual wall comparisons (3 PNG files)")
+    print("  - Global comparisons: energy_all_initial.png")
+    print("  - Global comparisons: energy_all_relaxed.png")
+    print("  - Global comparisons: energy_all_binary.png")
+    print("  - Summary report: optimization_summary.txt")
+    print("  - Cache files for faster future runs (3 PKL files)")
